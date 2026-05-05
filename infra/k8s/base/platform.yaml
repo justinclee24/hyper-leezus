@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hyper-leezus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prediction-api
+  namespace: hyper-leezus
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: prediction-api
+  template:
+    metadata:
+      labels:
+        app: prediction-api
+    spec:
+      containers:
+        - name: prediction-api
+          image: ghcr.io/example/hyper-leezus/prediction-api:latest
+          ports:
+            - containerPort: 8004
+          envFrom:
+            - secretRef:
+                name: platform-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prediction-api
+  namespace: hyper-leezus
+spec:
+  selector:
+    app: prediction-api
+  ports:
+    - port: 80
+      targetPort: 8004
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: realtime-streaming
+  namespace: hyper-leezus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: realtime-streaming
+  template:
+    metadata:
+      labels:
+        app: realtime-streaming
+    spec:
+      containers:
+        - name: realtime-streaming
+          image: ghcr.io/example/hyper-leezus/realtime-streaming:latest
+          ports:
+            - containerPort: 8005
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training-service
+  namespace: hyper-leezus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: training-service
+  template:
+    metadata:
+      labels:
+        app: training-service
+    spec:
+      nodeSelector:
+        workload: gpu
+      containers:
+        - name: training-service
+          image: ghcr.io/example/hyper-leezus/training-service:latest
+          resources:
+            limits:
+              nvidia.com/gpu: 1

@@ -1,0 +1,13 @@
+# Pip constraints file to resolve dependency conflicts
+# Pins versions of transitive dependencies that cause resolution-too-deep errors
+
+numpy>=1.26.0,<2.0.0
+scipy>=1.14.0,<1.15.0
+protobuf>=3.20.0,<5.0.0
+typing-extensions>=4.8.0,<5.0.0
+requests>=2.32.0,<3.0.0
+urllib3>=2.1.0,<3.0.0
+certifi>=2024.0.0,<2025.0.0
+charset-normalizer>=3.3.0,<4.0.0
+idna>=3.6,<4.0
+click>=8.1.0,<9.0.0

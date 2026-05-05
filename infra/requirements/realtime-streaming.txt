@@ -1,0 +1,2 @@
+# realtime-streaming service requirements
+-r base.txt

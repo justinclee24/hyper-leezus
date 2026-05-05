@@ -1,0 +1,5 @@
+# data-ingestion service requirements
+-r base.txt
+boto3>=1.35.0,<1.36.0
+kafka-python>=2.0.2,<3.0.0
+redis>=4.2.2,<5.0.0

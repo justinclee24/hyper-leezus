@@ -1,0 +1,6 @@
+# feature-pipeline service requirements
+-r base.txt
+polars>=1.14.0,<1.15.0
+pandas>=2.2.3,<2.3.0
+kafka-python>=2.0.2,<3.0.0
+redis>=4.2.2,<5.0.0

@@ -1,0 +1,12 @@
+resources:
+  - ../../base/platform.yaml
+
+namespace: hyper-leezus
+
+images:
+  - name: ghcr.io/example/hyper-leezus/prediction-api
+    newTag: dev
+  - name: ghcr.io/example/hyper-leezus/realtime-streaming
+    newTag: dev
+  - name: ghcr.io/example/hyper-leezus/training-service
+    newTag: dev
