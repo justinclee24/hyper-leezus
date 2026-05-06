@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { betRecommendations, featureImportance, upcomingGames } from "@/lib/data";
+import { derivePicks, fetchUpcomingGames } from "@/lib/odds";
+import { featureImportance, upcomingGames } from "@/lib/data";
 
 export default async function GamePage({
   params,
@@ -7,16 +8,23 @@ export default async function GamePage({
   params: Promise<{ gameId: string }>;
 }) {
   const { gameId } = await params;
-  const game = upcomingGames.find((g) => g.id === gameId);
+
+  // Try live data first, fall back to static
+  const liveGames = await fetchUpcomingGames();
+  const allGames = liveGames.length ? liveGames : upcomingGames;
+  const game = allGames.find((g) => g.id === gameId);
   if (!game) notFound();
 
-  const bet = betRecommendations.find((b) => b.gameId === gameId);
+  const picks = derivePicks(allGames);
+  const bet = picks.find((b) => b.gameId === gameId);
+
   const gameDate = new Date(game.startTime).toLocaleString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   });
 
   return (
@@ -26,7 +34,7 @@ export default async function GamePage({
       </div>
       <div className="flex flex-wrap items-baseline gap-3">
         <h1 className="text-3xl font-bold">
-          {game.awayTeam} <span className="text-slate-500">@</span> {game.homeTeam}
+          {game.awayTeam} <span className="text-slate-600">@</span> {game.homeTeam}
         </h1>
         <span className="text-sm text-slate-500">{gameDate}</span>
       </div>
@@ -34,7 +42,10 @@ export default async function GamePage({
       <div className="mt-6 grid gap-3 sm:grid-cols-4">
         {[
           { label: "Home Win %", value: `${Math.round(game.homeWinProbability * 100)}%` },
-          { label: "Spread", value: game.spread > 0 ? `+${game.spread}` : `${game.spread}` },
+          {
+            label: "Spread",
+            value: game.spread > 0 ? `+${game.spread}` : `${game.spread}`,
+          },
           { label: "Total", value: game.total.toFixed(1) },
           { label: "Confidence", value: `${Math.round(game.confidence * 100)}%` },
         ].map((stat) => (
@@ -48,8 +59,8 @@ export default async function GamePage({
         ))}
       </div>
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        {bet && (
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        {bet ? (
           <div className="rounded-xl border border-orange-500/25 bg-orange-500/[0.06] p-5">
             <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-orange-400">
               Model Pick
@@ -81,24 +92,33 @@ export default async function GamePage({
             </div>
             <p className="mt-4 text-xs leading-relaxed text-slate-500">{bet.reasoning}</p>
           </div>
+        ) : (
+          <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-5">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Model Pick
+            </div>
+            <p className="text-sm text-slate-500">
+              No significant edge detected. Model probability aligns closely with market-implied odds.
+            </p>
+          </div>
         )}
 
         <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-5">
           <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
             Top Features
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {featureImportance.map((f) => (
               <div key={f.feature} className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">{f.feature}</span>
                 <div className="flex items-center gap-3">
                   <div className="h-1 w-20 rounded-full bg-white/5">
                     <div
-                      className="h-1 rounded-full bg-orange-500/70"
+                      className="h-1 rounded-full bg-orange-500/60"
                       style={{ width: `${f.value * 300}%` }}
                     />
                   </div>
-                  <span className="w-8 text-right text-xs text-slate-500">
+                  <span className="w-8 text-right text-xs text-slate-600">
                     {Math.round(f.value * 100)}%
                   </span>
                 </div>
