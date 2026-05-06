@@ -1,11 +1,12 @@
 import { featureImportance } from "@/lib/data";
 
-export default function GamePage({ params }: { params: { gameId: string } }) {
+export default async function GamePage({ params }: { params: Promise<{ gameId: string }> }) {
+  const { gameId } = await params;
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <div className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-8">
         <div className="text-sm uppercase tracking-[0.3em] text-cyan-200">Game Breakdown</div>
-        <h1 className="mt-3 text-4xl font-semibold">{params.gameId}</h1>
+        <h1 className="mt-3 text-4xl font-semibold">{gameId}</h1>
         <div className="mt-8 grid gap-4 md:grid-cols-4">
           <Panel title="Home Win %" value="64%" />
           <Panel title="Spread" value="-5.5" />
