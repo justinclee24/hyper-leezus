@@ -6,7 +6,7 @@ from typing import Any
 
 import jwt
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +15,14 @@ class Settings(BaseSettings):
 
     app_env: str = "dev"
     postgres_dsn: str = "postgresql+psycopg://postgres:postgres@localhost:5432/hyper_leezus"
+
+    @field_validator("postgres_dsn")
+    @classmethod
+    def normalize_postgres_dsn(cls, v: str) -> str:
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
     redis_url: str = "redis://localhost:6379/0"
     kafka_bootstrap_servers: str = "localhost:9092"
     s3_endpoint_url: str = "http://localhost:9000"

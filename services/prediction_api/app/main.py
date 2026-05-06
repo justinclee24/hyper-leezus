@@ -17,8 +17,14 @@ app = FastAPI(title="prediction-api", version="0.1.0")
 bearer = HTTPBearer(auto_error=False)
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, limiter._rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+
+def rate_limit_exceeded_handler(request, exc):
+    return {"detail": "Rate limit exceeded"}
+
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 registry = RegistryClient()
 
