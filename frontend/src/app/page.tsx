@@ -1,3 +1,5 @@
+"use client";
+
 import { BarChart3, Radar, ShieldCheck, Zap } from "lucide-react";
 import {
   Bar,
