@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { BarChart3, Clock, Flame, Target, TrendingUp } from "lucide-react";
 import {
   Bar,
@@ -15,11 +16,11 @@ import {
 import { GameCardView } from "@/components/game-card";
 import {
   accuracySeries,
-  betRecommendations,
+  betRecommendations as staticPicks,
   featureImportance,
-  upcomingGames,
+  upcomingGames as staticGames,
 } from "@/lib/data";
-import type { BetRecommendation } from "@/lib/data";
+import type { BetRecommendation, GameCard } from "@/lib/data";
 
 const BET_TYPE_STYLE: Record<BetRecommendation["betType"], string> = {
   Spread: "border-blue-500/20 bg-blue-500/10 text-blue-300",
@@ -64,13 +65,13 @@ function BetCard({ bet }: { bet: BetRecommendation }) {
         <div className="flex-1">
           <div className="mb-1 flex justify-between text-[11px]">
             <span className="text-slate-600">Edge</span>
-            <span className={edgePct >= 10 ? "text-orange-400" : "text-amber-500"}>
+            <span className={edgePct >= 8 ? "text-orange-400" : "text-amber-500"}>
               {edgePct}%
             </span>
           </div>
           <div className="h-1 rounded-full bg-white/5">
             <div
-              className={`h-1 rounded-full ${edgePct >= 10 ? "bg-orange-500" : "bg-amber-500"}`}
+              className={`h-1 rounded-full ${edgePct >= 8 ? "bg-orange-500" : "bg-amber-500"}`}
               style={{ width: `${Math.min(edgePct * 7, 100)}%` }}
             />
           </div>
@@ -117,6 +118,20 @@ const tooltipStyle = {
 };
 
 export default function HomePage() {
+  const [games, setGames] = useState<GameCard[]>(staticGames);
+  const [picks, setPicks] = useState<BetRecommendation[]>(staticPicks);
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/games")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.games?.length) { setGames(data.games); setLive(true); }
+        if (data.picks?.length) setPicks(data.picks);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
       <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -130,11 +145,11 @@ export default function HomePage() {
         <div className="mb-4 flex items-center gap-3">
           <h2 className="text-xl font-bold tracking-tight">Today's Edges</h2>
           <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
-            {betRecommendations.length} picks
+            {picks.length} picks
           </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {betRecommendations.map((bet) => (
+          {picks.map((bet) => (
             <BetCard key={bet.id} bet={bet} />
           ))}
         </div>
@@ -143,10 +158,12 @@ export default function HomePage() {
       <section className="mb-10">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-bold tracking-tight">Upcoming Games</h2>
-          <span className="text-xs uppercase tracking-[0.25em] text-slate-600">Live board</span>
+          <span className="text-xs uppercase tracking-[0.25em] text-slate-600">
+            {live ? "Live data" : "Preview"}
+          </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {upcomingGames.map((game) => (
+          {games.map((game) => (
             <GameCardView key={game.id} game={game} />
           ))}
         </div>
@@ -155,7 +172,9 @@ export default function HomePage() {
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-6">
           <h3 className="text-base font-semibold">Feature Importance</h3>
-          <p className="mt-0.5 mb-5 text-xs text-slate-600">SHAP-averaged across all active leagues</p>
+          <p className="mb-5 mt-0.5 text-xs text-slate-600">
+            SHAP-averaged across all active leagues
+          </p>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={featureImportance} layout="vertical">
@@ -176,7 +195,7 @@ export default function HomePage() {
         </div>
         <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-6">
           <h3 className="text-base font-semibold">Model Health</h3>
-          <p className="mt-0.5 mb-5 text-xs text-slate-600">Rolling 5-week accuracy and ROI</p>
+          <p className="mb-5 mt-0.5 text-xs text-slate-600">Rolling 5-week accuracy and ROI</p>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={accuracySeries}>
