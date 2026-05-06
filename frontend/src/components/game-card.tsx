@@ -2,26 +2,34 @@ import Link from "next/link";
 import { GameCard } from "@/lib/data";
 
 export function GameCardView({ game }: { game: GameCard }) {
+  const gameDate = new Date(game.startTime).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
   return (
     <Link
       href={`/game/${game.id}`}
-      className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 transition hover:border-cyan-400/60 hover:bg-slate-900"
+      className="group rounded-xl border border-white/[0.05] bg-white/[0.02] p-4 transition hover:border-orange-500/20 hover:bg-orange-500/[0.04]"
     >
-      <div className="mb-4 flex items-center justify-between text-xs uppercase tracking-[0.25em] text-cyan-200">
-        <span>{game.league}</span>
-        <span>{new Date(game.startTime).toLocaleString()}</span>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+          {game.league}
+        </span>
+        <span className="text-[11px] text-slate-600">{gameDate}</span>
       </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-lg">
-          <span className="text-slate-200">{game.awayTeam}</span>
-          <span className="text-slate-400">Away</span>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-slate-400">{game.awayTeam}</span>
+          <span className="text-[10px] uppercase tracking-wider text-slate-600">Away</span>
         </div>
-        <div className="flex items-center justify-between text-lg font-semibold">
-          <span>{game.homeTeam}</span>
-          <span className="text-emerald-300">Home</span>
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-white">{game.homeTeam}</span>
+          <span className="text-[10px] uppercase tracking-wider text-orange-500">Home</span>
         </div>
       </div>
-      <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
+      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
         <Stat label="Home Win" value={`${Math.round(game.homeWinProbability * 100)}%`} />
         <Stat label="Confidence" value={`${Math.round(game.confidence * 100)}%`} />
         <Stat label="Total" value={game.total.toFixed(1)} />
@@ -32,9 +40,9 @@ export function GameCardView({ game }: { game: GameCard }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl bg-white/5 p-3">
-      <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">{label}</div>
-      <div className="mt-1 text-base font-medium text-white">{value}</div>
+    <div className="rounded-lg bg-white/[0.04] px-2 py-2">
+      <div className="text-[10px] uppercase tracking-wider text-slate-600">{label}</div>
+      <div className="mt-0.5 font-semibold text-slate-200">{value}</div>
     </div>
   );
 }
