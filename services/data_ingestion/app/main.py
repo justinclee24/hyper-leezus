@@ -4,10 +4,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-import boto3
 import httpx
 from fastapi import FastAPI
-from kafka import KafkaProducer
 
 from services.db import init_db, session_scope
 from services.providers import build_adapter
@@ -16,16 +14,32 @@ from services.shared import DataSource, logger, settings
 
 app = FastAPI(title="data-ingestion-service", version="0.1.0")
 
-producer = KafkaProducer(
-    bootstrap_servers=settings.kafka_bootstrap_servers,
-    value_serializer=lambda value: value.encode("utf-8"),
-)
-s3 = boto3.client(
-    "s3",
-    endpoint_url=settings.s3_endpoint_url,
-    aws_access_key_id=settings.s3_access_key,
-    aws_secret_access_key=settings.s3_secret_key,
-)
+_producer = None
+_s3 = None
+
+
+def get_producer():
+    global _producer
+    if _producer is None and settings.kafka_bootstrap_servers:
+        from kafka import KafkaProducer  # noqa: PLC0415
+        _producer = KafkaProducer(
+            bootstrap_servers=settings.kafka_bootstrap_servers,
+            value_serializer=lambda value: value.encode("utf-8"),
+        )
+    return _producer
+
+
+def get_s3():
+    global _s3
+    if _s3 is None and settings.s3_endpoint_url:
+        import boto3  # noqa: PLC0415
+        _s3 = boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint_url,
+            aws_access_key_id=settings.s3_access_key,
+            aws_secret_access_key=settings.s3_secret_key,
+        )
+    return _s3
 
 DATA_SOURCES = [
     DataSource("sports_stats", "https://api.sportradar.com", 60, enabled=bool(settings.sportradar_api_key)),
@@ -200,8 +214,12 @@ async def ingest_once() -> list[dict[str, Any]]:
             continue
         snapshot = await fetch_source(source)
         key = f"raw/{source.name}/{datetime.now(timezone.utc):%Y/%m/%d/%H%M%S}.json"
-        s3.put_object(Bucket=settings.s3_bucket, Key=key, Body=json.dumps(snapshot).encode("utf-8"))
-        producer.send(f"raw.{source.name}", value=json.dumps(snapshot))
+        s3_client = get_s3()
+        if s3_client:
+            s3_client.put_object(Bucket=settings.s3_bucket, Key=key, Body=json.dumps(snapshot).encode("utf-8"))
+        kafka = get_producer()
+        if kafka:
+            kafka.send(f"raw.{source.name}", value=json.dumps(snapshot))
         normalized = build_adapter(source).normalize(snapshot.get("payload", {}))
         with session_scope() as session:
             counts = IngestionRepository(session).save_batch(normalized, s3_key=key)

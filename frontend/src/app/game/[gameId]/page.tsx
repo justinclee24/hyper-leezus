@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { derivePicks, fetchUpcomingGames } from "@/lib/odds";
-import { featureImportance, upcomingGames } from "@/lib/data";
+import { featureImportance } from "@/lib/data";
 
 export default async function GamePage({
   params,
@@ -9,13 +9,11 @@ export default async function GamePage({
 }) {
   const { gameId } = await params;
 
-  // Try live data first, fall back to static
-  const liveGames = await fetchUpcomingGames();
-  const allGames = liveGames.length ? liveGames : upcomingGames;
+  const allGames = await fetchUpcomingGames();
   const game = allGames.find((g) => g.id === gameId);
   if (!game) notFound();
 
-  const picks = derivePicks(allGames);
+  const picks = allGames.length ? derivePicks(allGames) : [];
   const bet = picks.find((b) => b.gameId === gameId);
 
   const gameDate = new Date(game.startTime).toLocaleString("en-US", {

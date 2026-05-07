@@ -14,12 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { GameCardView } from "@/components/game-card";
-import {
-  accuracySeries,
-  betRecommendations as staticPicks,
-  featureImportance,
-  upcomingGames as staticGames,
-} from "@/lib/data";
+import { accuracySeries, featureImportance } from "@/lib/data";
 import type { BetRecommendation, GameCard } from "@/lib/data";
 
 const BET_TYPE_STYLE: Record<BetRecommendation["betType"], string> = {
@@ -118,18 +113,19 @@ const tooltipStyle = {
 };
 
 export default function HomePage() {
-  const [games, setGames] = useState<GameCard[]>(staticGames);
-  const [picks, setPicks] = useState<BetRecommendation[]>(staticPicks);
-  const [live, setLive] = useState(false);
+  const [games, setGames] = useState<GameCard[]>([]);
+  const [picks, setPicks] = useState<BetRecommendation[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/games")
       .then((r) => r.json())
       .then((data) => {
-        if (data.games?.length) { setGames(data.games); setLive(true); }
+        if (data.games?.length) setGames(data.games);
         if (data.picks?.length) setPicks(data.picks);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -144,29 +140,51 @@ export default function HomePage() {
       <section className="mb-10">
         <div className="mb-4 flex items-center gap-3">
           <h2 className="text-xl font-bold tracking-tight">Today's Edges</h2>
-          <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
-            {picks.length} picks
-          </span>
+          {!loading && picks.length > 0 && (
+            <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
+              {picks.length} picks
+            </span>
+          )}
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {picks.map((bet) => (
-            <BetCard key={bet.id} bet={bet} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-40 animate-pulse rounded-xl border border-white/[0.05] bg-white/[0.02]" />
+            ))}
+          </div>
+        ) : picks.length === 0 ? (
+          <p className="text-sm text-slate-500">No edges detected right now. Check back soon.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {picks.map((bet) => (
+              <BetCard key={bet.id} bet={bet} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="mb-10">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-bold tracking-tight">Upcoming Games</h2>
           <span className="text-xs uppercase tracking-[0.25em] text-slate-600">
-            {live ? "Live data" : "Preview"}
+            {loading ? "Loading…" : games.length ? "Live data" : "No games"}
           </span>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {games.map((game) => (
-            <GameCardView key={game.id} game={game} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-28 animate-pulse rounded-xl border border-white/[0.05] bg-white/[0.02]" />
+            ))}
+          </div>
+        ) : games.length === 0 ? (
+          <p className="text-sm text-slate-500">No upcoming games found. Add an ODDS_API_KEY to enable live data.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {games.map((game) => (
+              <GameCardView key={game.id} game={game} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">

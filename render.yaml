@@ -27,6 +27,56 @@ services:
     plan: free
 
   - type: web
+    name: data-ingestion
+    runtime: docker
+    dockerfilePath: ./infra/docker/data-ingestion.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: POSTGRES_DSN
+        fromDatabase:
+          name: hyper-leezus-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        value: ""
+      - key: S3_ENDPOINT_URL
+        value: ""
+      - key: S3_BUCKET
+        value: hyper-leezus-raw
+      - key: ODDS_API_KEY
+        sync: false
+      - key: SPORTRADAR_API_KEY
+        value: ""
+      - key: REDDIT_ACCESS_TOKEN
+        value: ""
+      - key: WEATHER_API_KEY
+        value: ""
+    healthCheckPath: /health
+    plan: free
+
+  - type: web
+    name: training-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/training-service.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: POSTGRES_DSN
+        fromDatabase:
+          name: hyper-leezus-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: MLFLOW_TRACKING_URI
+        value: ""
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        value: ""
+      - key: S3_ENDPOINT_URL
+        value: ""
+    healthCheckPath: /health
+    plan: free
+
+  - type: web
     name: frontend
     runtime: docker
     dockerfilePath: ./frontend/Dockerfile
@@ -34,7 +84,57 @@ services:
     envVars:
       - key: NEXT_PUBLIC_API_URL
         sync: false
+      - key: ODDS_API_KEY
+        sync: false
     plan: free
+
+  - type: cron
+    name: ingest-cron
+    runtime: docker
+    dockerfilePath: ./infra/docker/data-ingestion-cron.Dockerfile
+    dockerContext: .
+    schedule: "0 */2 * * *"
+    envVars:
+      - key: POSTGRES_DSN
+        fromDatabase:
+          name: hyper-leezus-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        value: ""
+      - key: S3_ENDPOINT_URL
+        value: ""
+      - key: S3_BUCKET
+        value: hyper-leezus-raw
+      - key: ODDS_API_KEY
+        sync: false
+      - key: SPORTRADAR_API_KEY
+        value: ""
+      - key: REDDIT_ACCESS_TOKEN
+        value: ""
+      - key: WEATHER_API_KEY
+        value: ""
+
+  - type: cron
+    name: train-cron
+    runtime: docker
+    dockerfilePath: ./infra/docker/training-service-cron.Dockerfile
+    dockerContext: .
+    schedule: "0 4 * * *"
+    envVars:
+      - key: POSTGRES_DSN
+        fromDatabase:
+          name: hyper-leezus-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: MLFLOW_TRACKING_URI
+        value: ""
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        value: ""
+      - key: S3_ENDPOINT_URL
+        value: ""
 
 databases:
   - name: hyper-leezus-db

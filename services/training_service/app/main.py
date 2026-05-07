@@ -12,7 +12,8 @@ from services.db import init_db
 from services.shared import logger, settings
 
 app = FastAPI(title="training-service", version="0.1.0")
-mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+if settings.mlflow_tracking_uri:
+    mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 
 
 def objective(trial: optuna.Trial) -> float:
