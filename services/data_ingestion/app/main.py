@@ -287,32 +287,36 @@ async def run_backfill(days_back: int = 30, sport: str | None = None) -> dict[st
     end_date = datetime.now(timezone.utc)
     dates = [end_date - timedelta(days=i) for i in range(days_back)]
 
+    import asyncio as _asyncio
+
     total_saved = 0
     async with httpx.AsyncClient(timeout=20) as client:
         for sport_league, sport_path in sports_to_fetch.items():
-            sport_saved = 0
-            for date in dates:
+
+            async def fetch_day(date: datetime, _league: str = sport_league, _path: str = sport_path) -> int:
                 date_str = date.strftime("%Y%m%d")
-                url = f"{source.endpoint}/{sport_path}/scoreboard"
+                url = f"{source.endpoint}/{_path}/scoreboard"
                 try:
                     resp = await client.get(url, params={"dates": date_str, "limit": 100})
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception:
-                    continue
+                    return 0
 
-                payload = {"source": "espn_scores", "provider_requests": [{"provider": "espn", "league": sport_league, "data": data}]}
+                payload = {"source": "espn_scores", "provider_requests": [{"provider": "espn", "league": _league, "data": data}]}
                 normalized = adapter.normalize(payload)
-                # Replace the full ESPN response with a tiny audit stub to avoid giant DB rows
                 normalized = normalized.model_copy(update={
-                    "raw_payload": {"source": "espn_scores", "league": sport_league, "date": date_str}
+                    "raw_payload": {"source": "espn_scores", "league": _league, "date": date_str}
                 })
                 with session_scope() as session:
                     counts = IngestionRepository(session).save_batch(
-                        normalized, s3_key=f"backfill/espn/{sport_league}/{date_str}"
+                        normalized, s3_key=f"backfill/espn/{_league}/{date_str}"
                     )
-                sport_saved += counts.get("team_stats", 0)
+                return counts.get("team_stats", 0)
 
+            # Fetch all dates for this sport concurrently (ESPN has no strict rate limit)
+            results = await _asyncio.gather(*[fetch_day(d) for d in dates])
+            sport_saved = sum(results)
             total_saved += sport_saved
             logger.info("backfill_complete", league=sport_league, team_stats=sport_saved)
 
