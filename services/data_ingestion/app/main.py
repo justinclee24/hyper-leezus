@@ -290,26 +290,31 @@ async def run_backfill(days_back: int = 30, sport: str | None = None) -> dict[st
     total_saved = 0
     async with httpx.AsyncClient(timeout=20) as client:
         for sport_league, sport_path in sports_to_fetch.items():
-            request_payloads: list[dict[str, Any]] = []
+            sport_saved = 0
             for date in dates:
                 date_str = date.strftime("%Y%m%d")
                 url = f"{source.endpoint}/{sport_path}/scoreboard"
                 try:
                     resp = await client.get(url, params={"dates": date_str, "limit": 100})
                     resp.raise_for_status()
-                    request_payloads.append({"provider": "espn", "league": sport_league, "data": resp.json()})
+                    data = resp.json()
                 except Exception:
-                    pass
+                    continue
 
-            if not request_payloads:
-                continue
+                payload = {"source": "espn_scores", "provider_requests": [{"provider": "espn", "league": sport_league, "data": data}]}
+                normalized = adapter.normalize(payload)
+                # Replace the full ESPN response with a tiny audit stub to avoid giant DB rows
+                normalized = normalized.model_copy(update={
+                    "raw_payload": {"source": "espn_scores", "league": sport_league, "date": date_str}
+                })
+                with session_scope() as session:
+                    counts = IngestionRepository(session).save_batch(
+                        normalized, s3_key=f"backfill/espn/{sport_league}/{date_str}"
+                    )
+                sport_saved += counts.get("team_stats", 0)
 
-            payload = {"source": "espn_scores", "provider_requests": request_payloads}
-            normalized = adapter.normalize(payload)
-            with session_scope() as session:
-                counts = IngestionRepository(session).save_batch(normalized, s3_key=f"backfill/espn/{sport_league}")
-            total_saved += counts.get("team_stats", 0)
-            logger.info("backfill_complete", league=sport_league, team_stats=counts.get("team_stats", 0))
+            total_saved += sport_saved
+            logger.info("backfill_complete", league=sport_league, team_stats=sport_saved)
 
     return {"saved_team_stats": total_saved, "sports": list(sports_to_fetch.keys()), "days_back": days_back}
 
