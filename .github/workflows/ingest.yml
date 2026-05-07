@@ -26,4 +26,7 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           APP_ENV: production
           PYTHONPATH: .
+          S3_ENDPOINT_URL: ""
+          KAFKA_BOOTSTRAP_SERVERS: ""
+          REDIS_URL: ""
         run: python -m services.data_ingestion.run_once

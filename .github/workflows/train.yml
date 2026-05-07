@@ -25,4 +25,7 @@ jobs:
           POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
           APP_ENV: production
           PYTHONPATH: .
+          S3_ENDPOINT_URL: ""
+          KAFKA_BOOTSTRAP_SERVERS: ""
+          MLFLOW_TRACKING_URI: ""
         run: python -m services.training_service.run_once
