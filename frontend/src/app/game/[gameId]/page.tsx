@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { derivePicks, fetchUpcomingGames } from "@/lib/odds";
 import { featureImportance } from "@/lib/data";
+import { GamePreview } from "@/components/game-preview";
 
 export default async function GamePage({
   params,
@@ -125,6 +126,16 @@ export default async function GamePage({
           </div>
         </div>
       </div>
+
+      <GamePreview
+        gameId={gameId}
+        homeTeam={game.homeTeam}
+        awayTeam={game.awayTeam}
+        league={game.league}
+        homeProb={game.homeWinProbability}
+        spread={game.spread}
+        total={game.total}
+      />
     </main>
   );
 }

@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { GameCardView } from "@/components/game-card";
+import { TrackButton } from "@/components/bet-button";
 import { accuracySeries, featureImportance } from "@/lib/data";
 import type { BetRecommendation, GameCard } from "@/lib/data";
 
@@ -76,7 +77,12 @@ function BetCard({ bet }: { bet: BetRecommendation }) {
           <div className="text-sm font-semibold text-slate-200">{confPct}%</div>
         </div>
       </div>
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">{bet.reasoning}</p>
+      <div className="mt-3 flex items-start justify-between gap-2">
+        <p className="text-[11px] leading-relaxed text-slate-600">{bet.reasoning}</p>
+        <div className="shrink-0">
+          <TrackButton bet={bet} />
+        </div>
+      </div>
     </div>
   );
 }

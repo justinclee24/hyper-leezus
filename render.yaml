@@ -86,6 +86,10 @@ services:
         sync: false
       - key: ODDS_API_KEY
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
     plan: free
 
   - type: cron

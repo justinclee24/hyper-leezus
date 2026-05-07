@@ -8,6 +8,23 @@ export type GameCard = {
   confidence: number;
   spread: number;
   total: number;
+  bookmakerCount?: number;
+  spreadVariance?: number;
+  totalVariance?: number;
+};
+
+export type TrackedBet = {
+  id: string;
+  gameId: string;
+  matchup: string;
+  pick: string;
+  betType: string;
+  odds: string;
+  edge: number;
+  stake: number;
+  league: string;
+  trackedAt: string;
+  result: "pending" | "win" | "loss" | "push";
 };
 
 export type BetRecommendation = {
