@@ -132,7 +132,7 @@ class ModelTrainingRun(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     league: Mapped[str] = mapped_column(String(32), index=True)
-    model_version: Mapped[str] = mapped_column(String(120), unique=True)
+    model_version: Mapped[str] = mapped_column(String(120), index=True)
     training_window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     training_window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     metrics_json: Mapped[dict] = mapped_column(JSON)
