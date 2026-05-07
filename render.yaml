@@ -90,6 +90,10 @@ services:
         sync: false
       - key: AUTH_SECRET
         generateValue: true
+      - key: PREDICTION_API_URL
+        sync: false
+      - key: PREDICTION_API_TOKEN
+        sync: false
     plan: free
 
   - type: cron

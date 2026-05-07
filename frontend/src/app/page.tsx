@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { GameCardView } from "@/components/game-card";
 import { TrackButton } from "@/components/bet-button";
+import { SearchBar } from "@/components/search-bar";
 import { accuracySeries, featureImportance } from "@/lib/data";
 import type { BetRecommendation, GameCard } from "@/lib/data";
 
@@ -118,10 +119,17 @@ const tooltipStyle = {
   },
 };
 
+function matchesQuery(query: string, ...fields: string[]): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return fields.some((f) => f.toLowerCase().includes(q));
+}
+
 export default function HomePage() {
   const [games, setGames] = useState<GameCard[]>([]);
   const [picks, setPicks] = useState<BetRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     fetch("/api/games")
@@ -134,6 +142,13 @@ export default function HomePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const filteredGames = games.filter((g) =>
+    matchesQuery(query, g.homeTeam, g.awayTeam, g.league),
+  );
+  const filteredPicks = picks.filter((p) =>
+    matchesQuery(query, p.matchup, p.league, p.betType, p.pick),
+  );
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
       <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -143,12 +158,16 @@ export default function HomePage() {
         <Metric icon={<BarChart3 className="h-4 w-4" />} label="Model ROI" value="+4.1%" />
       </div>
 
+      <div className="mb-8">
+        <SearchBar value={query} onChange={setQuery} />
+      </div>
+
       <section className="mb-10">
         <div className="mb-4 flex items-center gap-3">
           <h2 className="text-xl font-bold tracking-tight">Today's Edges</h2>
-          {!loading && picks.length > 0 && (
+          {!loading && filteredPicks.length > 0 && (
             <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
-              {picks.length} picks
+              {filteredPicks.length} picks
             </span>
           )}
         </div>
@@ -158,11 +177,13 @@ export default function HomePage() {
               <div key={i} className="h-40 animate-pulse rounded-xl border border-white/[0.05] bg-white/[0.02]" />
             ))}
           </div>
-        ) : picks.length === 0 ? (
-          <p className="text-sm text-slate-500">No edges detected right now. Check back soon.</p>
+        ) : filteredPicks.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {picks.length === 0 ? "No edges detected right now. Check back soon." : "No picks match your search."}
+          </p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {picks.map((bet) => (
+            {filteredPicks.map((bet) => (
               <BetCard key={bet.id} bet={bet} />
             ))}
           </div>
@@ -182,11 +203,15 @@ export default function HomePage() {
               <div key={i} className="h-28 animate-pulse rounded-xl border border-white/[0.05] bg-white/[0.02]" />
             ))}
           </div>
-        ) : games.length === 0 ? (
-          <p className="text-sm text-slate-500">No upcoming games found. Add an ODDS_API_KEY to enable live data.</p>
+        ) : filteredGames.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {games.length === 0
+              ? "No upcoming games found. Add an ODDS_API_KEY to enable live data."
+              : "No games match your search."}
+          </p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {games.map((game) => (
+            {filteredGames.map((game) => (
               <GameCardView key={game.id} game={game} />
             ))}
           </div>

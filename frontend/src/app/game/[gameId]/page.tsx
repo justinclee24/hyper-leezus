@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { derivePicks, fetchUpcomingGames } from "@/lib/odds";
+import { derivePicksForGame, fetchUpcomingGames } from "@/lib/odds";
 import { featureImportance } from "@/lib/data";
 import { GamePreview } from "@/components/game-preview";
 
@@ -14,8 +14,7 @@ export default async function GamePage({
   const game = allGames.find((g) => g.id === gameId);
   if (!game) notFound();
 
-  const picks = allGames.length ? derivePicks(allGames) : [];
-  const bet = picks.find((b) => b.gameId === gameId);
+  const picks = derivePicksForGame(game);
 
   const gameDate = new Date(game.startTime).toLocaleString("en-US", {
     weekday: "short",
@@ -59,48 +58,62 @@ export default async function GamePage({
       </div>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        {bet ? (
-          <div className="rounded-xl border border-orange-500/25 bg-orange-500/[0.06] p-5">
-            <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-orange-400">
-              Model Pick
-            </div>
-            <div className="flex items-baseline gap-3">
-              <span className="text-3xl font-bold text-white">{bet.pick}</span>
-              <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-sm text-slate-400">
-                {bet.odds}
-              </span>
-              <span className="text-sm text-slate-500">{bet.betType}</span>
-            </div>
-            <div className="mt-4 flex items-center gap-4">
-              <div className="flex-1">
-                <div className="mb-1 flex justify-between text-[11px]">
-                  <span className="text-slate-500">Edge</span>
-                  <span className="text-orange-400">{Math.round(bet.edge * 100)}%</span>
-                </div>
-                <div className="h-1 rounded-full bg-white/5">
-                  <div
-                    className="h-1 rounded-full bg-orange-500"
-                    style={{ width: `${Math.min(bet.edge * 700, 100)}%` }}
-                  />
-                </div>
+        <div className="space-y-3">
+          {picks.length === 0 ? (
+            <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-5">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Model Picks
               </div>
-              <div>
-                <div className="text-[11px] text-slate-500">Confidence</div>
-                <div className="text-sm font-semibold">{Math.round(bet.confidence * 100)}%</div>
+              <p className="text-sm text-slate-500">
+                No significant edge detected for this game. Probability aligns closely with
+                market-implied odds across all bet types.
+              </p>
+            </div>
+          ) : (
+            picks.map((bet) => (
+              <div
+                key={bet.id}
+                className="rounded-xl border border-orange-500/25 bg-orange-500/[0.06] p-5"
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-orange-400">
+                    {bet.betType}
+                  </div>
+                  {bet.hot && (
+                    <span className="rounded-md bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-400">
+                      Hot
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline gap-3">
+                  <span className="text-2xl font-bold text-white">{bet.pick}</span>
+                  <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-sm text-slate-400">
+                    {bet.odds}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center gap-4">
+                  <div className="flex-1">
+                    <div className="mb-1 flex justify-between text-[11px]">
+                      <span className="text-slate-500">Edge</span>
+                      <span className="text-orange-400">{Math.round(bet.edge * 100)}%</span>
+                    </div>
+                    <div className="h-1 rounded-full bg-white/5">
+                      <div
+                        className="h-1 rounded-full bg-orange-500"
+                        style={{ width: `${Math.min(bet.edge * 700, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-slate-500">Confidence</div>
+                    <div className="text-sm font-semibold">{Math.round(bet.confidence * 100)}%</div>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">{bet.reasoning}</p>
               </div>
-            </div>
-            <p className="mt-4 text-xs leading-relaxed text-slate-500">{bet.reasoning}</p>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-5">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Model Pick
-            </div>
-            <p className="text-sm text-slate-500">
-              No significant edge detected. Model probability aligns closely with market-implied odds.
-            </p>
-          </div>
-        )}
+            ))
+          )}
+        </div>
 
         <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-5">
           <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">

@@ -32,7 +32,17 @@ export function GameCardView({ game }: { game: GameCard }) {
       <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
         <Stat label="Home Win" value={`${Math.round(game.homeWinProbability * 100)}%`} />
         <Stat label="Confidence" value={`${Math.round(game.confidence * 100)}%`} />
-        <Stat label="Total" value={game.total.toFixed(1)} />
+        <Stat label="Total" value={game.total > 0 ? game.total.toFixed(1) : "—"} />
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        {game.bookmakerCount && game.bookmakerCount > 1 ? (
+          <span className="text-[10px] text-slate-700">{game.bookmakerCount} books</span>
+        ) : (
+          <span />
+        )}
+        <span className="text-[10px] font-medium text-orange-500/70 transition-colors group-hover:text-orange-400">
+          AI Preview →
+        </span>
       </div>
     </Link>
   );

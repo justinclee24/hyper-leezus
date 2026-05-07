@@ -215,6 +215,13 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
   return picks.sort((a, b) => b.edge - a.edge).slice(0, 6);
 }
 
+// Returns ALL qualifying picks for a single game — no global rank cutoff.
+// Use this on game detail pages so a game's own picks are never displaced by
+// other games with higher edges.
+export function derivePicksForGame(game: GameCard): BetRecommendation[] {
+  return derivePicks([game]);
+}
+
 export async function fetchUpcomingGames(): Promise<GameCard[]> {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) return [];
