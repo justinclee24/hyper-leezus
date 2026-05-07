@@ -33,7 +33,7 @@ class DatasetBuilder:
         with session_scope() as session:
             repository = TrainingRepository(session)
             frame = self._build_from_db(repository, profile)
-        if frame.empty:
+        if len(frame) < 20:
             frame = self._synthetic_frame(profile, rows=320)
         return frame.sort_values("game_date").reset_index(drop=True)
 
