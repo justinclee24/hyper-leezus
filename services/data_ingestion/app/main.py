@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from fastapi import FastAPI
 
 from services.db import init_db, session_scope
-from services.providers import build_adapter
+from services.providers import ESPNAdapter, build_adapter
 from services.repositories import IngestionRepository
 from services.shared import DataSource, logger, settings
 
@@ -44,10 +44,20 @@ def get_s3():
 DATA_SOURCES = [
     DataSource("sports_stats", "https://api.sportradar.com", 60, enabled=bool(settings.sportradar_api_key)),
     DataSource("odds", "https://api.the-odds-api.com", 15, enabled=bool(settings.odds_api_key)),
+    DataSource("scores", "https://api.the-odds-api.com", 15, enabled=bool(settings.odds_api_key)),
     DataSource("injuries", "https://api.sportradar.com", 30, enabled=bool(settings.sportradar_api_key)),
     DataSource("social_sentiment", "https://oauth.reddit.com/search", 20, enabled=bool(settings.reddit_access_token)),
     DataSource("weather", "https://api.openweathermap.org/data/3.0/onecall", 60, enabled=bool(settings.weather_api_key)),
 ]
+
+ESPN_SPORT_PATHS: dict[str, str] = {
+    "nba": "basketball/nba",
+    "nfl": "football/nfl",
+    "nhl": "hockey/nhl",
+    "mlb": "baseball/mlb",
+    "ncaab": "basketball/mens-college-basketball",
+    "ncaaf": "football/college-football",
+}
 
 
 def enabled_sportradar_leagues() -> set[str]:
@@ -119,6 +129,29 @@ def build_source_requests(source: DataSource) -> list[dict[str, Any]]:
                     "regions": settings.odds_api_regions,
                     "markets": settings.odds_api_markets,
                     "oddsFormat": "american",
+                    "dateFormat": "iso",
+                },
+            }
+            for league, sport_key in sport_keys.items()
+        ]
+    if source.name == "scores":
+        sport_keys = {
+            "nba": "basketball_nba",
+            "nfl": "americanfootball_nfl",
+            "nhl": "icehockey_nhl",
+            "mlb": "baseball_mlb",
+            "ncaab": "basketball_ncaab",
+            "ncaaf": "americanfootball_ncaaf",
+            "soccer": "soccer_epl",
+        }
+        return [
+            {
+                "provider": "the_odds_api",
+                "league": league,
+                "url": f"{source.endpoint}/v4/sports/{sport_key}/scores/",
+                "params": {
+                    "apiKey": settings.odds_api_key,
+                    "daysFrom": 3,
                     "dateFormat": "iso",
                 },
             }
@@ -237,6 +270,48 @@ async def health() -> dict[str, str]:
 async def run_ingestion() -> dict[str, Any]:
     results = await ingest_once()
     return {"ingested": results, "count": len(results)}
+
+
+@app.post("/ingest/backfill")
+async def run_backfill(days_back: int = 30, sport: str | None = None) -> dict[str, Any]:
+    """Fetch historical scores from ESPN for a date range and store as TeamGameStat rows.
+
+    ESPN game IDs differ from The-Odds-API UUIDs, so these rows won't match MarketOdds
+    directly. They do populate per-team rolling performance history used as power-rating
+    features during model training.
+    """
+    sports_to_fetch = {sport: ESPN_SPORT_PATHS[sport]} if sport and sport in ESPN_SPORT_PATHS else ESPN_SPORT_PATHS
+    source = DataSource("espn_scores", "https://site.api.espn.com/apis/site/v2/sports", 0, enabled=True)
+    adapter = ESPNAdapter(source)
+
+    end_date = datetime.now(timezone.utc)
+    dates = [end_date - timedelta(days=i) for i in range(days_back)]
+
+    total_saved = 0
+    async with httpx.AsyncClient(timeout=20) as client:
+        for sport_league, sport_path in sports_to_fetch.items():
+            request_payloads: list[dict[str, Any]] = []
+            for date in dates:
+                date_str = date.strftime("%Y%m%d")
+                url = f"{source.endpoint}/{sport_path}/scoreboard"
+                try:
+                    resp = await client.get(url, params={"dates": date_str, "limit": 100})
+                    resp.raise_for_status()
+                    request_payloads.append({"provider": "espn", "league": sport_league, "data": resp.json()})
+                except Exception:
+                    pass
+
+            if not request_payloads:
+                continue
+
+            payload = {"source": "espn_scores", "provider_requests": request_payloads}
+            normalized = adapter.normalize(payload)
+            with session_scope() as session:
+                counts = IngestionRepository(session).save_batch(normalized, s3_key=f"backfill/espn/{sport_league}")
+            total_saved += counts.get("team_stats", 0)
+            logger.info("backfill_complete", league=sport_league, team_stats=counts.get("team_stats", 0))
+
+    return {"saved_team_stats": total_saved, "sports": list(sports_to_fetch.keys()), "days_back": days_back}
 
 
 @app.on_event("startup")

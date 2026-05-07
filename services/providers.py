@@ -452,10 +452,154 @@ class WeatherAdapter(ProviderAdapter):
         ]
 
 
+class ScoresAdapter(ProviderAdapter):
+    """Normalizes The-Odds-API /scores/ completed games into TeamStatRecord objects.
+
+    The scores endpoint uses the same game UUID as the odds endpoint, so rows
+    written here will join with MarketOdds on external_game_id during training.
+    """
+
+    def normalize(self, payload: dict[str, Any]) -> NormalizedIngestionBatch:
+        collected_at = self.now()
+        return NormalizedIngestionBatch(
+            source=self.source.name,
+            collected_at=collected_at,
+            team_stats=self._extract_team_stats(payload, collected_at),
+            raw_payload=payload,
+        )
+
+    def _extract_team_stats(self, payload: dict[str, Any], collected_at: datetime) -> list[TeamStatRecord]:
+        records: list[TeamStatRecord] = []
+        for request in payload.get("provider_requests", []):
+            league = request["league"]
+            for event in request.get("data", []):
+                if not event.get("completed"):
+                    continue
+                scores = event.get("scores") or []
+                if len(scores) < 2:
+                    continue
+                home_name = event.get("home_team", "")
+                away_name = event.get("away_team", "")
+                game_id = event.get("id", f"{league}-unknown")
+                game_date = event.get("commence_time") or collected_at
+
+                home_pts = next((float(s["score"]) for s in scores if s.get("name") == home_name), 0.0)
+                away_pts = next((float(s["score"]) for s in scores if s.get("name") == away_name), 0.0)
+                home_id = home_name.lower().replace(" ", "_")
+                away_id = away_name.lower().replace(" ", "_")
+
+                records.extend([
+                    TeamStatRecord(
+                        provider=self.source.name,
+                        league=league,
+                        external_game_id=game_id,
+                        team_id=home_id,
+                        team_name=home_name,
+                        opponent_id=away_id,
+                        opponent_name=away_name,
+                        is_home=True,
+                        game_date=game_date,
+                        points_for=home_pts,
+                        points_against=away_pts,
+                    ),
+                    TeamStatRecord(
+                        provider=self.source.name,
+                        league=league,
+                        external_game_id=game_id,
+                        team_id=away_id,
+                        team_name=away_name,
+                        opponent_id=home_id,
+                        opponent_name=home_name,
+                        is_home=False,
+                        game_date=game_date,
+                        points_for=away_pts,
+                        points_against=home_pts,
+                    ),
+                ])
+        return records
+
+
+class ESPNAdapter(ProviderAdapter):
+    """Normalizes ESPN unofficial scoreboard API into TeamStatRecord objects.
+
+    ESPN game IDs differ from The-Odds-API UUIDs, so these rows won't join with
+    MarketOdds. They are stored with prefix 'espn-{league}-' and are used solely
+    to build per-team rolling performance history for power-rating features.
+    """
+
+    def normalize(self, payload: dict[str, Any]) -> NormalizedIngestionBatch:
+        collected_at = self.now()
+        return NormalizedIngestionBatch(
+            source=self.source.name,
+            collected_at=collected_at,
+            team_stats=self._extract_team_stats(payload, collected_at),
+            raw_payload=payload,
+        )
+
+    def _extract_team_stats(self, payload: dict[str, Any], collected_at: datetime) -> list[TeamStatRecord]:
+        records: list[TeamStatRecord] = []
+        for request in payload.get("provider_requests", []):
+            league = request["league"]
+            for event in request.get("data", {}).get("events", []):
+                competitions = event.get("competitions", [])
+                if not competitions:
+                    continue
+                comp = competitions[0]
+                if not comp.get("status", {}).get("type", {}).get("completed"):
+                    continue
+                competitors = comp.get("competitors", [])
+                if len(competitors) < 2:
+                    continue
+                home = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0])
+                away = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1])
+
+                home_team = home.get("team", {})
+                away_team = away.get("team", {})
+                game_id = f"espn-{league}-{event.get('id', 'unknown')}"
+                game_date = event.get("date") or collected_at
+
+                home_pts = float(home.get("score", 0) or 0)
+                away_pts = float(away.get("score", 0) or 0)
+                home_id = home_team.get("abbreviation", home_team.get("id", "home")).lower()
+                away_id = away_team.get("abbreviation", away_team.get("id", "away")).lower()
+
+                records.extend([
+                    TeamStatRecord(
+                        provider=self.source.name,
+                        league=league,
+                        external_game_id=game_id,
+                        team_id=home_id,
+                        team_name=home_team.get("displayName", "Home"),
+                        opponent_id=away_id,
+                        opponent_name=away_team.get("displayName", "Away"),
+                        is_home=True,
+                        game_date=game_date,
+                        points_for=home_pts,
+                        points_against=away_pts,
+                    ),
+                    TeamStatRecord(
+                        provider=self.source.name,
+                        league=league,
+                        external_game_id=game_id,
+                        team_id=away_id,
+                        team_name=away_team.get("displayName", "Away"),
+                        opponent_id=home_id,
+                        opponent_name=home_team.get("displayName", "Home"),
+                        is_home=False,
+                        game_date=game_date,
+                        points_for=away_pts,
+                        points_against=home_pts,
+                    ),
+                ])
+        return records
+
+
 def build_adapter(source: DataSource) -> ProviderAdapter:
     mapping: dict[str, type[ProviderAdapter]] = {
         "sports_stats": SportsStatsAdapter,
         "odds": OddsAdapter,
+        "scores": ScoresAdapter,
+        "espn_scores": ESPNAdapter,
         "injuries": InjuriesAdapter,
         "social_sentiment": SentimentAdapter,
         "weather": WeatherAdapter,

@@ -41,6 +41,8 @@ class DatasetBuilder:
         team_rows = repository.load_team_game_stats(profile.league)
         if not team_rows:
             return pd.DataFrame()
+
+        rolling = self._compute_rolling_ratings(team_rows)
         odds_by_game = repository.latest_odds_by_game(profile.league)
         weather_by_game = repository.latest_weather_by_game(profile.league)
         sentiment_by_team = repository.latest_sentiment(profile.league)
@@ -57,6 +59,11 @@ class DatasetBuilder:
             away = pair["away"]
             if home is None or away is None:
                 continue
+            home_roll = rolling.get((game_id, home.team_id))
+            away_roll = rolling.get((game_id, away.team_id))
+            if home_roll is None or away_roll is None:
+                # Skip games where a team has no prior history — can't compute valid features
+                continue
             odds = odds_by_game.get(game_id)
             weather = weather_by_game.get(game_id)
             home_sentiment = sentiment_by_team.get(home.team_id)
@@ -66,10 +73,10 @@ class DatasetBuilder:
                     "game_id": game_id,
                     "league": profile.league,
                     "game_date": pair["game_date"],
-                    "power_rating_diff": (home.points_for - home.points_against) - (away.points_for - away.points_against),
-                    "offensive_rating_diff": (home.points_for / max(home.possessions, 1.0)) - (away.points_for / max(away.possessions, 1.0)),
-                    "defensive_rating_diff": (away.points_against / max(away.possessions, 1.0)) - (home.points_against / max(home.possessions, 1.0)),
-                    "pace_diff": (home.possessions / max(home.minutes, 1.0)) - (away.possessions / max(away.minutes, 1.0)),
+                    "power_rating_diff": (home_roll["avg_pts_for"] - home_roll["avg_pts_against"]) - (away_roll["avg_pts_for"] - away_roll["avg_pts_against"]),
+                    "offensive_rating_diff": (home_roll["avg_pts_for"] / max(home_roll["avg_possessions"], 1.0)) - (away_roll["avg_pts_for"] / max(away_roll["avg_possessions"], 1.0)),
+                    "defensive_rating_diff": (away_roll["avg_pts_against"] / max(away_roll["avg_possessions"], 1.0)) - (home_roll["avg_pts_against"] / max(home_roll["avg_possessions"], 1.0)),
+                    "pace_diff": (home_roll["avg_possessions"] / max(home.minutes, 1.0)) - (away_roll["avg_possessions"] / max(away.minutes, 1.0)),
                     "rest_days_diff": float(home.rest_days - away.rest_days),
                     "travel_fatigue_diff": self._travel_fatigue(home) - self._travel_fatigue(away),
                     "injury_impact_diff": injury_impact_by_team.get(away.team_id, 0.0) - injury_impact_by_team.get(home.team_id, 0.0),
@@ -87,6 +94,28 @@ class DatasetBuilder:
                 }
             )
         return pd.DataFrame.from_records(records)
+
+    @staticmethod
+    def _compute_rolling_ratings(team_rows: list, window: int = 10) -> dict[tuple[str, str], dict[str, float]]:
+        """For each (game_id, team_id), compute rolling averages from prior games only.
+
+        Sorting by game_date ensures we only look back — no label leakage from the
+        current game's score into its own features.
+        """
+        sorted_rows = sorted(team_rows, key=lambda r: (r.game_date, r.external_game_id))
+        history: dict[str, list] = {}
+        rolling: dict[tuple[str, str], dict[str, float]] = {}
+        for row in sorted_rows:
+            hist = history.setdefault(row.team_id, [])
+            if hist:
+                recent = hist[-window:]
+                rolling[(row.external_game_id, row.team_id)] = {
+                    "avg_pts_for": sum(r.points_for for r in recent) / len(recent),
+                    "avg_pts_against": sum(r.points_against for r in recent) / len(recent),
+                    "avg_possessions": sum(r.possessions for r in recent) / len(recent),
+                }
+            hist.append(row)
+        return rolling
 
     def _synthetic_frame(self, profile: LeagueTrainingProfile, rows: int) -> pd.DataFrame:
         random = Random(f"{profile.league}-seed")
