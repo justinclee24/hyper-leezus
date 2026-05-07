@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import desc, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from services.domain import (
@@ -42,13 +43,13 @@ class IngestionRepository:
         self.session = session
 
     def save_batch(self, batch: NormalizedIngestionBatch, s3_key: str) -> dict[str, int]:
-        self.session.add(
-            RawIngestionRecord(
+        self.session.execute(
+            pg_insert(RawIngestionRecord).values(
                 source=batch.source,
                 collected_at=batch.collected_at,
                 s3_key=s3_key,
                 payload=batch.raw_payload,
-            )
+            ).on_conflict_do_nothing(index_elements=["s3_key"])
         )
         for record in batch.team_stats:
             self._save_team_stat(record)
