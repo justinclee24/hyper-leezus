@@ -222,23 +222,35 @@ export function derivePicksForGame(game: GameCard): BetRecommendation[] {
   return derivePicks([game]);
 }
 
-export async function fetchUpcomingGames(): Promise<GameCard[]> {
+export async function fetchUpcomingGames(dateFilter?: string): Promise<GameCard[]> {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) return [];
+
+  // dateFilter is a YYYY-MM-DD string (local date). Build commenceTimeFrom/To for that calendar day.
+  let commenceTimeFrom: string | undefined;
+  let commenceTimeTo: string | undefined;
+  if (dateFilter) {
+    commenceTimeFrom = `${dateFilter}T00:00:00Z`;
+    commenceTimeTo = `${dateFilter}T23:59:59Z`;
+  }
 
   const games: GameCard[] = [];
 
   for (const [sportKey, league] of Object.entries(SPORTS)) {
     try {
+      const params: Record<string, string> = {
+        apiKey,
+        regions: "us",
+        markets: "h2h,spreads,totals",
+        dateFormat: "iso",
+        oddsFormat: "american",
+      };
+      if (commenceTimeFrom) params.commenceTimeFrom = commenceTimeFrom;
+      if (commenceTimeTo) params.commenceTimeTo = commenceTimeTo;
+
       const url =
         `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?` +
-        new URLSearchParams({
-          apiKey,
-          regions: "us",
-          markets: "h2h,spreads,totals",
-          dateFormat: "iso",
-          oddsFormat: "american",
-        });
+        new URLSearchParams(params);
 
       const resp = await fetch(url, { next: { revalidate: 300 } });
       if (!resp.ok) continue;

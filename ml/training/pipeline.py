@@ -35,39 +35,48 @@ class TrainingOrchestrator:
         training_window_start = self._to_datetime(frame["game_date"].min())
         training_window_end = self._to_datetime(frame["game_date"].max())
         run_name = f"{league}-{datetime.now(timezone.utc):%Y%m%d%H%M%S}"
-        with mlflow.start_run(run_name=run_name):
-            mlflow.log_params(params)
-            mlflow.log_dict(asdict(self.config), "training_config.json")
-            mlflow.log_param("league", profile.league)
-            mlflow.log_param("training_rows", len(frame))
-            bundle = self.trainer.train(frame, profile, version=run_name, params=params)
-            metrics = bundle.metrics | {
-                "calibration_error": abs(bundle.metrics["brier_score"] - 0.20),
-                "roi_against_closing_line": max(0.0, (bundle.metrics["accuracy"] - 0.52) * 0.35),
-            }
-            mlflow.log_metrics(metrics)
-            artifact = ModelArtifact(
+
+        bundle = self.trainer.train(frame, profile, version=run_name, params=params)
+        metrics = bundle.metrics | {
+            "calibration_error": abs(bundle.metrics["brier_score"] - 0.20),
+            "roi_against_closing_line": max(0.0, (bundle.metrics["accuracy"] - 0.52) * 0.35),
+        }
+        artifact = ModelArtifact(
+            league=league,
+            version=run_name,
+            uri=bundle.artifact_path,
+            metrics=metrics,
+        )
+        artifact_path = Path(bundle.artifact_path)
+        model_blob = artifact_path.read_bytes() if artifact_path.exists() else None
+
+        # Persist to DB first — this is the critical path for cross-machine serving
+        with session_scope() as session:
+            TrainingRepository(session).save_training_run(
                 league=league,
                 version=run_name,
-                uri=bundle.artifact_path,
+                params=params | {"training_rows": len(frame)},
                 metrics=metrics,
+                artifact_uri=bundle.artifact_path,
+                model_blob=model_blob,
+                training_window_start=training_window_start,
+                training_window_end=training_window_end,
             )
-            mlflow.log_dict(asdict(artifact), "artifact.json")
-            mlflow.log_dict({"features": bundle.feature_names}, "feature_names.json")
-            artifact_path = Path(bundle.artifact_path)
-            model_blob = artifact_path.read_bytes() if artifact_path.exists() else None
-            with session_scope() as session:
-                TrainingRepository(session).save_training_run(
-                    league=league,
-                    version=run_name,
-                    params=params | {"training_rows": len(frame)},
-                    metrics=metrics,
-                    artifact_uri=bundle.artifact_path,
-                    model_blob=model_blob,
-                    training_window_start=training_window_start,
-                    training_window_end=training_window_end,
-                )
-            return asdict(artifact)
+
+        # MLflow logging is best-effort — don't let it block or fail the training run
+        try:
+            with mlflow.start_run(run_name=run_name):
+                mlflow.log_params(params)
+                mlflow.log_dict(asdict(self.config), "training_config.json")
+                mlflow.log_param("league", profile.league)
+                mlflow.log_param("training_rows", len(frame))
+                mlflow.log_metrics(metrics)
+                mlflow.log_dict(asdict(artifact), "artifact.json")
+                mlflow.log_dict({"features": bundle.feature_names}, "feature_names.json")
+        except Exception:
+            pass
+
+        return asdict(artifact)
 
     @staticmethod
     def _to_datetime(value: object) -> datetime:

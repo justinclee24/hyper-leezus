@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { derivePicks, fetchUpcomingGames } from "@/lib/odds";
 import type { GameCard } from "@/lib/data";
 
@@ -52,8 +52,9 @@ async function fetchMLPrediction(game: GameCard): Promise<MLPrediction | null> {
   }
 }
 
-export async function GET() {
-  const games = await fetchUpcomingGames();
+export async function GET(req: NextRequest) {
+  const date = new URL(req.url).searchParams.get("date") ?? undefined;
+  const games = await fetchUpcomingGames(date);
   if (!games.length) {
     return NextResponse.json({ games: [], picks: [] });
   }

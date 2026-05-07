@@ -46,4 +46,7 @@ def init_db() -> None:
             "ALTER TABLE IF EXISTS model_training_runs "
             "DROP CONSTRAINT IF EXISTS model_training_runs_model_version_key"
         ))
+        # Also drop standalone unique index SQLAlchemy may have created under either naming convention
+        conn.execute(text("DROP INDEX IF EXISTS ix_model_training_runs_model_version"))
+        conn.execute(text("DROP INDEX IF EXISTS uq_model_training_runs_model_version"))
         conn.commit()

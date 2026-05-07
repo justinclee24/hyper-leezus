@@ -6,6 +6,7 @@ interface RedditPost {
   score: number;
   num_comments: number;
   subreddit: string;
+  url: string;
 }
 
 async function fetchRedditSentiment(
@@ -24,11 +25,12 @@ async function fetchRedditSentiment(
 
     const data = await resp.json();
     const posts: RedditPost[] = (data.data?.children ?? [])
-      .map((c: { data: RedditPost & { score: number } }) => ({
+      .map((c: { data: RedditPost & { score: number; permalink: string } }) => ({
         title: c.data.title,
         score: c.data.score,
         num_comments: c.data.num_comments,
         subreddit: c.data.subreddit,
+        url: c.data.permalink ? `https://reddit.com${c.data.permalink}` : "",
       }))
       .filter((p: RedditPost) => p.score > 0);
 

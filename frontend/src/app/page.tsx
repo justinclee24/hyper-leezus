@@ -125,14 +125,39 @@ function matchesQuery(query: string, ...fields: string[]): boolean {
   return fields.some((f) => f.toLowerCase().includes(q));
 }
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function offsetDate(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatTabLabel(dateStr: string) {
+  const today = todayStr();
+  const tomorrow = offsetDate(1);
+  if (dateStr === today) return "Today";
+  if (dateStr === tomorrow) return "Tomorrow";
+  const d = new Date(dateStr + "T12:00:00Z");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+const DATE_OPTIONS = Array.from({ length: 7 }, (_, i) => offsetDate(i));
+
 export default function HomePage() {
   const [games, setGames] = useState<GameCard[]>([]);
   const [picks, setPicks] = useState<BetRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [selectedDate, setSelectedDate] = useState(todayStr());
 
   useEffect(() => {
-    fetch("/api/games")
+    setLoading(true);
+    setGames([]);
+    setPicks([]);
+    fetch(`/api/games?date=${selectedDate}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.games?.length) setGames(data.games);
@@ -140,7 +165,7 @@ export default function HomePage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedDate]);
 
   const filteredGames = games.filter((g) =>
     matchesQuery(query, g.homeTeam, g.awayTeam, g.league),
@@ -164,7 +189,9 @@ export default function HomePage() {
 
       <section className="mb-10">
         <div className="mb-4 flex items-center gap-3">
-          <h2 className="text-xl font-bold tracking-tight">Today's Edges</h2>
+          <h2 className="text-xl font-bold tracking-tight">
+            {selectedDate === todayStr() ? "Today's Edges" : `${formatTabLabel(selectedDate)} Edges`}
+          </h2>
           {!loading && filteredPicks.length > 0 && (
             <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
               {filteredPicks.length} picks
@@ -196,6 +223,22 @@ export default function HomePage() {
           <span className="text-xs uppercase tracking-[0.25em] text-slate-600">
             {loading ? "Loading…" : games.length ? "Live data" : "No games"}
           </span>
+        </div>
+
+        <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
+          {DATE_OPTIONS.map((d) => (
+            <button
+              key={d}
+              onClick={() => setSelectedDate(d)}
+              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                selectedDate === d
+                  ? "border-orange-500/40 bg-orange-500/15 text-orange-400"
+                  : "border-white/[0.06] bg-white/[0.02] text-slate-500 hover:border-white/[0.12] hover:text-slate-300"
+              }`}
+            >
+              {formatTabLabel(d)}
+            </button>
+          ))}
         </div>
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

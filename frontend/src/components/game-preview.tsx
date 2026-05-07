@@ -6,6 +6,7 @@ interface RedditPost {
   title: string;
   score: number;
   subreddit: string;
+  url?: string;
 }
 
 interface PreviewData {
@@ -103,7 +104,18 @@ export function GamePreview({
                 <span className="mt-0.5 shrink-0 text-[10px] text-slate-600">
                   r/{post.subreddit}
                 </span>
-                <span className="flex-1 text-xs leading-relaxed text-slate-400">{post.title}</span>
+                {post.url ? (
+                  <a
+                    href={post.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 text-xs leading-relaxed text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    {post.title}
+                  </a>
+                ) : (
+                  <span className="flex-1 text-xs leading-relaxed text-slate-400">{post.title}</span>
+                )}
                 <span className="shrink-0 text-[10px] text-orange-500/70">+{post.score}</span>
               </div>
             ))}
