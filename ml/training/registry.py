@@ -56,12 +56,37 @@ class TrainedModelBundle:
 
 class RegistryClient:
     def load_active_bundle(self, league: str) -> TrainedModelBundle | StubModelBundle:
+        # Prefer DB blob — works across machines (GitHub Actions training → Render serving)
+        bundle = self._load_from_db_blob(league)
+        if bundle is not None:
+            return bundle
+        # Fall back to local file for backward compatibility
         artifact_path = self._latest_artifact_path(league)
         if artifact_path is None or not artifact_path.exists():
             return StubModelBundle(league=league, version=f"{league}-production-v1")
         with artifact_path.open("rb") as handle:
             payload = pickle.load(handle)
         return TrainedModelBundle(payload)
+
+    @staticmethod
+    def _load_from_db_blob(league: str) -> TrainedModelBundle | None:
+        try:
+            from services.models import ModelTrainingRun
+
+            with session_scope() as session:
+                row = session.execute(
+                    select(ModelTrainingRun)
+                    .where(ModelTrainingRun.league == league)
+                    .where(ModelTrainingRun.model_blob.isnot(None))
+                    .order_by(ModelTrainingRun.created_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                if row is not None and row.model_blob:
+                    payload = pickle.loads(row.model_blob)
+                    return TrainedModelBundle(payload)
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _latest_artifact_path(league: str) -> Path | None:

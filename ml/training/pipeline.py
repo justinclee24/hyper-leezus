@@ -54,6 +54,8 @@ class TrainingOrchestrator:
             )
             mlflow.log_dict(asdict(artifact), "artifact.json")
             mlflow.log_dict({"features": bundle.feature_names}, "feature_names.json")
+            artifact_path = Path(bundle.artifact_path)
+            model_blob = artifact_path.read_bytes() if artifact_path.exists() else None
             with session_scope() as session:
                 TrainingRepository(session).save_training_run(
                     league=league,
@@ -61,6 +63,7 @@ class TrainingOrchestrator:
                     params=params | {"training_rows": len(frame)},
                     metrics=metrics,
                     artifact_uri=bundle.artifact_path,
+                    model_blob=model_blob,
                     training_window_start=training_window_start,
                     training_window_end=training_window_end,
                 )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from services.db import Base
@@ -138,6 +138,7 @@ class ModelTrainingRun(Base):
     metrics_json: Mapped[dict] = mapped_column(JSON)
     params_json: Mapped[dict] = mapped_column(JSON)
     artifact_uri: Mapped[str] = mapped_column(Text)
+    model_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

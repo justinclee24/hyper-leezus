@@ -214,6 +214,7 @@ class TrainingRepository:
         params: dict[str, Any],
         metrics: dict[str, float],
         artifact_uri: str,
+        model_blob: bytes | None = None,
         training_window_start: datetime | None = None,
         training_window_end: datetime | None = None,
     ) -> None:
@@ -226,6 +227,7 @@ class TrainingRepository:
                 metrics_json=metrics,
                 params_json=params,
                 artifact_uri=artifact_uri,
+                model_blob=model_blob,
             )
         )
 

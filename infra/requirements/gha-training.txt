@@ -1,0 +1,8 @@
+# Lightweight training requirements for GitHub Actions (excludes torch/pytorch-lightning)
+-r base.txt
+scikit-learn>=1.5.2,<1.6.0
+xgboost>=2.1.2,<2.2.0
+optuna>=4.1.0,<4.2.0
+mlflow>=2.18.0,<2.19.0
+pandas>=2.2.3,<2.3.0
+numpy>=1.26.0,<2.0.0
