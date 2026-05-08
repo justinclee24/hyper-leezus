@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUp, ExternalLink, Lightbulb, MessageSquare, Newspaper, Trophy } from "lucide-react";
-import type { TeamRecord, NewsItem } from "@/lib/espn";
+import type { TeamRecord, NewsItem, H2HMeeting } from "@/lib/espn";
 import { matchTeam, buildTidbits, ESPN_LEAGUES } from "@/lib/espn";
 import type { GameCard } from "@/lib/data";
 
@@ -42,6 +42,17 @@ function StatRow({ label, away, home, highlight }: { label: string; away: string
 function GamePreviewCard({ game, standings }: { game: GameCard; standings: TeamRecord[] }) {
   const homeStats = matchTeam(game.homeTeam, standings);
   const awayStats = matchTeam(game.awayTeam, standings);
+
+  const [h2h, setH2h] = useState<H2HMeeting[] | null>(null);
+
+  useEffect(() => {
+    if (!homeStats?.id || !awayStats?.id) return;
+    fetch(`/api/h2h?homeId=${homeStats.id}&awayId=${awayStats.id}&league=${game.league}`)
+      .then((r) => r.json())
+      .then((d) => setH2h(d.meetings ?? []))
+      .catch(() => setH2h([]));
+  }, [homeStats?.id, awayStats?.id, game.league]);
+
   if (!homeStats && !awayStats) return null;
 
   const tidbits = homeStats && awayStats ? buildTidbits(awayStats, homeStats, game.league) : [];
@@ -120,6 +131,64 @@ function GamePreviewCard({ game, standings }: { game: GameCard; standings: TeamR
                 <span className="text-[11px] leading-relaxed text-slate-400">{tip}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Head-to-head */}
+        {h2h !== null && h2h.length > 0 && homeStats && awayStats && (
+          <div className="mt-3">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                H2H · Last {h2h.length}
+              </span>
+              {(() => {
+                const homeWins = h2h.filter(
+                  (m) =>
+                    (m.homeTeamId === homeStats.id && m.winner === "home") ||
+                    (m.awayTeamId === homeStats.id && m.winner === "away"),
+                ).length;
+                const awayWins = h2h.length - homeWins;
+                const leader =
+                  homeWins > awayWins
+                    ? homeStats.abbreviation
+                    : awayWins > homeWins
+                    ? awayStats.abbreviation
+                    : null;
+                return (
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {awayStats.abbreviation} {awayWins}–{homeWins} {homeStats.abbreviation}
+                    {leader && (
+                      <span className="ml-1 text-slate-600">({leader} leads)</span>
+                    )}
+                  </span>
+                );
+              })()}
+            </div>
+            <div className="space-y-1">
+              {h2h.slice(0, 3).map((m, i) => {
+                const d = new Date(m.date).toLocaleDateString("en-US", {
+                  month: "short", day: "numeric", year: "2-digit",
+                });
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between rounded bg-white/[0.02] px-2.5 py-1 text-[11px]"
+                  >
+                    <span className="text-slate-600">{d}</span>
+                    <span>
+                      <span className={m.winner === "away" ? "font-bold text-slate-200" : "text-slate-500"}>
+                        {m.awayAbbr} {m.awayScore}
+                      </span>
+                      <span className="mx-1 text-slate-700">–</span>
+                      <span className={m.winner === "home" ? "font-bold text-slate-200" : "text-slate-500"}>
+                        {m.homeScore} {m.homeAbbr}
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-slate-700">@{m.homeAbbr}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

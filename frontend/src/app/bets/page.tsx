@@ -2,6 +2,7 @@
 
 import { useBets } from "@/hooks/useBets";
 import type { TrackedBet } from "@/lib/data";
+import { Info } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -120,7 +121,17 @@ export default function AnalyticsPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
-      <h1 className="mb-6 text-2xl font-bold tracking-tight">Analytics</h1>
+      <h1 className="mb-4 text-2xl font-bold tracking-tight">Analytics</h1>
+
+      {/* Disclaimer */}
+      <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-3">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-600" />
+        <p className="text-xs leading-relaxed text-slate-600">
+          Picks tracked here are for analytical purposes only — no real bets are placed through this platform.
+          To wager, use a licensed sportsbook such as DraftKings, FanDuel, BetMGM, or Caesars Sportsbook.
+          Gambling involves real financial risk; please bet responsibly and within your means.
+        </p>
+      </div>
 
       {/* Summary stats */}
       <div className="mb-8 grid gap-3 sm:grid-cols-5">

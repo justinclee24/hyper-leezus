@@ -217,6 +217,68 @@ export async function fetchNews(leagueKey: string): Promise<NewsItem[]> {
   }));
 }
 
+// ─── Head-to-Head ─────────────────────────────────────────────────────────────
+
+export interface H2HMeeting {
+  date: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  homeScore: number;
+  awayScore: number;
+  winner: "home" | "away";
+  homeAbbr: string;
+  awayAbbr: string;
+}
+
+export async function fetchHeadToHead(
+  homeTeamId: string,
+  awayTeamId: string,
+  sport: string,
+  league: string,
+  limit = 5,
+): Promise<H2HMeeting[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `${ESPN_SITE}/${sport}/${league}/teams/${homeTeamId}/schedule`,
+  );
+  if (!data) return [];
+
+  const meetings: H2HMeeting[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const events = [...(data.events ?? [])].reverse(); // most recent first
+
+  for (const event of events) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const comp = (event.competitions ?? [])[0] as any;
+    if (!comp?.status?.type?.completed) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const competitors: any[] = comp.competitors ?? [];
+    const hasOpponent = competitors.some((c: any) => c.team?.id === awayTeamId);
+    if (!hasOpponent) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const homeComp = competitors.find((c: any) => c.homeAway === "home");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const awayComp = competitors.find((c: any) => c.homeAway === "away");
+    if (!homeComp || !awayComp) continue;
+
+    meetings.push({
+      date: event.date ?? "",
+      homeTeamId: homeComp.team?.id ?? "",
+      awayTeamId: awayComp.team?.id ?? "",
+      homeScore: parseInt(homeComp.score ?? "0") || 0,
+      awayScore: parseInt(awayComp.score ?? "0") || 0,
+      winner: homeComp.winner === true ? "home" : "away",
+      homeAbbr: homeComp.team?.abbreviation ?? "",
+      awayAbbr: awayComp.team?.abbreviation ?? "",
+    });
+
+    if (meetings.length >= limit) break;
+  }
+  return meetings;
+}
+
 // Fuzzy-match an Odds API team name to a TeamRecord
 export function matchTeam(oddsName: string, teams: TeamRecord[]): TeamRecord | undefined {
   const n = oddsName.toLowerCase();
