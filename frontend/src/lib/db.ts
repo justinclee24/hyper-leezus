@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import type { TrackedBet } from "./data";
 
 let _pool: Pool | null = null;
 let _schemaReady = false;
@@ -24,8 +25,27 @@ async function ensureSchema(): Promise<void> {
       created_at    TIMESTAMPTZ DEFAULT now()
     )
   `);
+  await pool().query(`
+    CREATE TABLE IF NOT EXISTS tracked_bets (
+      id          TEXT        PRIMARY KEY,
+      user_id     UUID        NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+      game_id     TEXT        NOT NULL,
+      matchup     TEXT        NOT NULL,
+      pick        TEXT        NOT NULL,
+      bet_type    TEXT        NOT NULL,
+      odds        TEXT        NOT NULL,
+      edge        REAL        NOT NULL,
+      stake       REAL        NOT NULL DEFAULT 1,
+      league      TEXT        NOT NULL,
+      tracked_at  TIMESTAMPTZ NOT NULL,
+      result      TEXT        NOT NULL DEFAULT 'pending',
+      created_at  TIMESTAMPTZ DEFAULT now()
+    )
+  `);
   _schemaReady = true;
 }
+
+// ─── Users ────────────────────────────────────────────────────────────────────
 
 interface UserRow {
   id: string;
@@ -54,4 +74,61 @@ export async function createUser(
     [email, name, passwordHash],
   );
   return rows[0];
+}
+
+// ─── Tracked bets ─────────────────────────────────────────────────────────────
+
+export async function getTrackedBets(userId: string): Promise<TrackedBet[]> {
+  await ensureSchema();
+  const { rows } = await pool().query<{
+    id: string; game_id: string; matchup: string; pick: string;
+    bet_type: string; odds: string; edge: number; stake: number;
+    league: string; tracked_at: string; result: string;
+  }>(
+    "SELECT id, game_id, matchup, pick, bet_type, odds, edge, stake, league, tracked_at, result FROM tracked_bets WHERE user_id = $1 ORDER BY tracked_at DESC",
+    [userId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    gameId: r.game_id,
+    matchup: r.matchup,
+    pick: r.pick,
+    betType: r.bet_type,
+    odds: r.odds,
+    edge: r.edge,
+    stake: r.stake,
+    league: r.league,
+    trackedAt: r.tracked_at,
+    result: r.result as TrackedBet["result"],
+  }));
+}
+
+export async function addTrackedBet(userId: string, bet: TrackedBet): Promise<void> {
+  await ensureSchema();
+  await pool().query(
+    `INSERT INTO tracked_bets (id, user_id, game_id, matchup, pick, bet_type, odds, edge, stake, league, tracked_at, result)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     ON CONFLICT (id) DO NOTHING`,
+    [bet.id, userId, bet.gameId, bet.matchup, bet.pick, bet.betType, bet.odds, bet.edge, bet.stake, bet.league, bet.trackedAt, bet.result],
+  );
+}
+
+export async function updateTrackedBetResult(
+  userId: string,
+  id: string,
+  result: TrackedBet["result"],
+): Promise<void> {
+  await ensureSchema();
+  await pool().query(
+    "UPDATE tracked_bets SET result = $1 WHERE id = $2 AND user_id = $3",
+    [result, id, userId],
+  );
+}
+
+export async function deleteTrackedBet(userId: string, id: string): Promise<void> {
+  await ensureSchema();
+  await pool().query(
+    "DELETE FROM tracked_bets WHERE id = $1 AND user_id = $2",
+    [id, userId],
+  );
 }
