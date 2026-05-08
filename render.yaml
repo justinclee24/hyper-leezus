@@ -98,6 +98,18 @@ services:
         sync: false
       - key: PREDICTION_API_TOKEN
         sync: false
+      - key: SPORTRADAR_API_KEY
+        sync: false
+      - key: SPORTRADAR_ACCESS_LEVEL
+        value: trial
+      - key: SPORTRADAR_LANGUAGE_CODE
+        value: en
+      - key: NFL_SEASON_YEAR
+        value: "2025"
+      - key: NFL_SEASON_TYPE
+        value: REG
+      - key: NFL_WEEK
+        value: "1"
     plan: free
 
   - type: cron
