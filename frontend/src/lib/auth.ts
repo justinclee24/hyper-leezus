@@ -51,15 +51,4 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
   }
 }
 
-// Demo credentials — replace with DB lookup in production
-const DEMO_USERS = [
-  { id: "1", email: "demo@hyper.bet", password: "demo123", name: "Demo User" },
-];
-
-export function validateCredentials(email: string, password: string): SessionUser | null {
-  const user = DEMO_USERS.find((u) => u.email === email && u.password === password);
-  if (!user) return null;
-  return { id: user.id, email: user.email, name: user.name };
-}
-
 export { COOKIE_NAME, MAX_AGE };

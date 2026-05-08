@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { TrendingUp } from "lucide-react";
 
 function LoginForm() {
@@ -44,7 +45,7 @@ function LoginForm() {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="demo@hyper.bet"
+          placeholder="you@example.com"
           className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm outline-none placeholder:text-slate-600 focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/30"
           required
         />
@@ -69,7 +70,10 @@ function LoginForm() {
         {loading ? "Signing in…" : "Sign In"}
       </button>
       <p className="text-center text-xs text-slate-600">
-        Demo credentials: demo@hyper.bet / demo123
+        Don&apos;t have an account?{" "}
+        <Link href="/signup" className="text-slate-400 hover:text-white">
+          Sign up
+        </Link>
       </p>
     </form>
   );
