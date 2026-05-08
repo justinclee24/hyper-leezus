@@ -125,7 +125,6 @@ function matchesQuery(query: string, ...fields: string[]): boolean {
   return fields.some((f) => f.toLowerCase().includes(q));
 }
 
-// Local-timezone date helpers — avoids UTC-date mismatch for US users
 function localDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -140,24 +139,28 @@ function gameLocalDate(isoString: string) {
   return localDateStr(new Date(isoString));
 }
 
-function formatTabLabel(dateStr: string) {
-  const today = localDateStr();
-  const tomorrow = offsetLocalDate(1);
+function formatTabLabel(dateStr: string, today: string, tomorrow: string) {
+  if (!dateStr) return "Today";
   if (dateStr === today) return "Today";
   if (dateStr === tomorrow) return "Tomorrow";
   const [y, m, day] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-const DATE_OPTIONS = Array.from({ length: 7 }, (_, i) => offsetLocalDate(i));
-
 export default function HomePage() {
   const [allGames, setAllGames] = useState<GameCard[]>([]);
   const [allPicks, setAllPicks] = useState<BetRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [selectedDate, setSelectedDate] = useState(localDateStr());
+  // Initialized empty — set client-side only to avoid SSR/client timezone hydration mismatch
+  const [selectedDate, setSelectedDate] = useState("");
+  const [dateOptions, setDateOptions] = useState<string[]>([]);
   const [selectedLeague, setSelectedLeague] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedDate(localDateStr());
+    setDateOptions(Array.from({ length: 7 }, (_, i) => offsetLocalDate(i)));
+  }, []);
 
   useEffect(() => {
     fetch("/api/games")
@@ -170,17 +173,17 @@ export default function HomePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // All filtering happens client-side using local timezone
+  const today = selectedDate;
+  const tomorrow = dateOptions[1] ?? "";
+
   const games = allGames.filter((g) => {
-    const dateMatch = gameLocalDate(g.startTime) === selectedDate;
-    const leagueMatch = !selectedLeague || g.league === selectedLeague;
-    return dateMatch && leagueMatch;
+    if (!selectedDate) return true;
+    return gameLocalDate(g.startTime) === selectedDate && (!selectedLeague || g.league === selectedLeague);
   });
 
-  const picks = allPicks.filter((p) => {
-    const leagueMatch = !selectedLeague || p.league === selectedLeague.split(" ")[0];
-    return leagueMatch;
-  });
+  const picks = allPicks.filter((p) =>
+    !selectedLeague || p.league === selectedLeague.split(" ")[0],
+  );
 
   const filteredGames = games.filter((g) =>
     matchesQuery(query, g.homeTeam, g.awayTeam, g.league),
@@ -189,7 +192,6 @@ export default function HomePage() {
     matchesQuery(query, p.matchup, p.league, p.betType, p.pick),
   );
 
-  // Leagues that actually have games in the current dataset
   const activeLeagues = [...new Set(allGames.map((g) => g.league))].sort();
 
   return (
@@ -208,7 +210,7 @@ export default function HomePage() {
       <section className="mb-10">
         <div className="mb-4 flex items-center gap-3">
           <h2 className="text-xl font-bold tracking-tight">
-            {selectedDate === localDateStr() ? "Today's Edges" : `${formatTabLabel(selectedDate)} Edges`}
+            {!selectedDate || selectedDate === today ? "Today's Edges" : `${formatTabLabel(selectedDate, today, tomorrow)} Edges`}
           </h2>
           {!loading && filteredPicks.length > 0 && (
             <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
@@ -245,7 +247,7 @@ export default function HomePage() {
 
         {/* Date tabs */}
         <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
-          {DATE_OPTIONS.map((d) => (
+          {dateOptions.map((d) => (
             <button
               key={d}
               onClick={() => setSelectedDate(d)}
@@ -255,7 +257,7 @@ export default function HomePage() {
                   : "border-white/[0.06] bg-white/[0.02] text-slate-500 hover:border-white/[0.12] hover:text-slate-300"
               }`}
             >
-              {formatTabLabel(d)}
+              {formatTabLabel(d, today, tomorrow)}
             </button>
           ))}
         </div>

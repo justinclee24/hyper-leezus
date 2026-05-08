@@ -222,11 +222,22 @@ export function derivePicksForGame(game: GameCard): BetRecommendation[] {
   return derivePicks([game]);
 }
 
+// In-memory cache — survives across requests within the same server process.
+// The Odds API free tier is 500 req/month (8 sports per refresh = ~62 refreshes/month).
+// 2-hour TTL = ~22 refreshes/month, well within budget.
+let _cachedGames: GameCard[] | null = null;
+let _cacheExpiry = 0;
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 export async function fetchUpcomingGames(): Promise<GameCard[]> {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) return [];
 
+  const now = Date.now();
+  if (_cachedGames && now < _cacheExpiry) return _cachedGames;
+
   const games: GameCard[] = [];
+  let remaining: string | null = null;
 
   for (const [sportKey, league] of Object.entries(SPORTS)) {
     try {
@@ -240,8 +251,11 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
           oddsFormat: "american",
         });
 
-      const resp = await fetch(url, { next: { revalidate: 300 } });
+      const resp = await fetch(url, { cache: "no-store" });
       if (!resp.ok) continue;
+
+      // Track quota — logged once per refresh cycle
+      remaining = resp.headers.get("x-requests-remaining") ?? remaining;
 
       const events: OddsEvent[] = await resp.json();
       for (const event of events) {
@@ -251,6 +265,15 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
     } catch {
       continue;
     }
+  }
+
+  if (remaining !== null) {
+    console.log(`[odds] requests remaining this month: ${remaining}`);
+  }
+
+  if (games.length > 0) {
+    _cachedGames = games;
+    _cacheExpiry = now + CACHE_TTL_MS;
   }
 
   return games.sort((a, b) => a.startTime.localeCompare(b.startTime));
