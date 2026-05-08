@@ -1,40 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, AlertTriangle, BarChart3, Shield, Swords } from "lucide-react";
-import type { TeamStats, TeamInjuryReport, InjuredPlayer } from "@/lib/sportradar";
+import { ExternalLink, Lightbulb, Newspaper, Trophy } from "lucide-react";
+import type { TeamRecord, NewsItem } from "@/lib/espn";
+import { matchTeam, buildTidbits, ESPN_LEAGUES } from "@/lib/espn";
 import type { GameCard } from "@/lib/data";
-import { matchTeam } from "@/lib/sportradar";
 
-const ALL_LEAGUES = ["NFL", "NBA", "NHL", "MLB"] as const;
-type League = (typeof ALL_LEAGUES)[number];
-
-// Env var set at build time — only show leagues in the SportRadar trial package
-const ENABLED_LEAGUES = (process.env.NEXT_PUBLIC_SPORTRADAR_LEAGUES ?? "nfl")
-  .split(",")
-  .map((s) => s.trim().toUpperCase())
-  .filter((s): s is League => ALL_LEAGUES.includes(s as League));
-
-const LEAGUES: readonly League[] = ENABLED_LEAGUES.length > 0 ? ENABLED_LEAGUES : ALL_LEAGUES;
-
-const SCORE_LABEL: Record<League, { for: string; against: string }> = {
-  NFL: { for: "Pts/G", against: "Opp/G" },
-  NBA: { for: "Pts/G", against: "Opp/G" },
-  NHL: { for: "GF/G", against: "GA/G" },
-  MLB: { for: "R/G", against: "RA/G" },
-};
-
-const STATUS_STYLE: Record<InjuredPlayer["status"], string> = {
-  out: "bg-red-500/15 text-red-400 border-red-500/20",
-  doubtful: "bg-orange-500/15 text-orange-400 border-orange-500/20",
-  questionable: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",
-  probable: "bg-slate-500/15 text-slate-400 border-slate-500/20",
-};
+type League = keyof typeof ESPN_LEAGUES;
+const LEAGUES = Object.keys(ESPN_LEAGUES) as League[];
 
 interface StatsPayload {
-  league: League;
-  standings: TeamStats[];
-  injuries: TeamInjuryReport[];
+  standings: TeamRecord[];
+  news: NewsItem[];
   hasData: boolean;
 }
 
@@ -42,228 +19,156 @@ function Skeleton({ className }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg bg-white/[0.03] ${className}`} />;
 }
 
-function RecordBadge({ team }: { team: TeamStats }) {
-  const record =
-    team.ties !== undefined
-      ? `${team.wins}-${team.losses}-${team.ties}`
-      : team.otLosses !== undefined
-        ? `${team.wins}-${team.losses}-${team.otLosses}`
-        : `${team.wins}-${team.losses}`;
+function FormBadge({ streak }: { streak: string }) {
+  if (!streak) return null;
+  const isWin = streak.startsWith("W");
   return (
-    <span className="font-mono text-sm font-semibold text-white">{record}</span>
+    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isWin ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+      {streak}
+    </span>
   );
 }
 
-function WinPctBar({ pct }: { pct: number }) {
+function StatRow({ label, away, home, highlight }: { label: string; away: string; home: string; highlight?: "home" | "away" | "none" }) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 rounded-full bg-white/[0.05]">
-        <div
-          className="h-1.5 rounded-full bg-orange-500"
-          style={{ width: `${Math.round(pct * 100)}%` }}
-        />
-      </div>
-      <span className="text-xs text-slate-400">{Math.round(pct * 100)}%</span>
+    <div className="grid grid-cols-3 items-center py-1.5 text-sm">
+      <span className={`text-right font-semibold ${highlight === "away" ? "text-orange-400" : "text-slate-300"}`}>{away}</span>
+      <span className="text-center text-[11px] text-slate-600">{label}</span>
+      <span className={`font-semibold ${highlight === "home" ? "text-orange-400" : "text-slate-300"}`}>{home}</span>
     </div>
   );
 }
 
-function TeamCard({
-  team,
-  injuryReport,
-  label,
-  league,
-}: {
-  team: TeamStats;
-  injuryReport?: TeamInjuryReport;
-  label: "Home" | "Away";
-  league: League;
-}) {
-  const labels = SCORE_LABEL[league];
-  const keyInjuries = (injuryReport?.players ?? []).filter(
-    (p) => p.status === "out" || p.status === "doubtful",
-  );
-
-  return (
-    <div className="flex-1 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-600">
-            {label} · {team.conference}{team.division ? ` ${team.division}` : ""}
-          </div>
-          <div className="mt-0.5 text-lg font-bold leading-tight">{team.name}</div>
-          <RecordBadge team={team} />
-        </div>
-        <div className="text-right">
-          <WinPctBar pct={team.winPct} />
-          <div className="mt-1 text-[11px] text-slate-600">Win %</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-3">
-          <div className="text-[11px] text-slate-600">{labels.for}</div>
-          <div className="mt-0.5 text-xl font-bold text-emerald-400">
-            {team.pointsFor.toFixed(1)}
-          </div>
-        </div>
-        <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-3">
-          <div className="text-[11px] text-slate-600">{labels.against}</div>
-          <div className="mt-0.5 text-xl font-bold text-red-400">
-            {team.pointsAgainst.toFixed(1)}
-          </div>
-        </div>
-      </div>
-
-      {keyInjuries.length > 0 && (
-        <div>
-          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            <AlertTriangle className="h-3 w-3" />
-            Key Injuries
-          </div>
-          <div className="space-y-1">
-            {keyInjuries.slice(0, 4).map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-2">
-                <span className="truncate text-xs text-slate-400">
-                  {p.position && <span className="mr-1 text-slate-600">{p.position}</span>}
-                  {p.name}
-                </span>
-                <span
-                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLE[p.status]}`}
-                >
-                  {p.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function GameMatchup({
-  game,
-  standings,
-  injuries,
-  league,
-}: {
-  game: GameCard;
-  standings: TeamStats[];
-  injuries: TeamInjuryReport[];
-  league: League;
-}) {
+function GamePreviewCard({ game, standings }: { game: GameCard; standings: TeamRecord[] }) {
   const homeStats = matchTeam(game.homeTeam, standings);
   const awayStats = matchTeam(game.awayTeam, standings);
-  const homeInjuries = injuries.find((r) =>
-    r.teamName.toLowerCase().includes(game.homeTeam.split(" ").pop()!.toLowerCase()),
-  );
-  const awayInjuries = injuries.find((r) =>
-    r.teamName.toLowerCase().includes(game.awayTeam.split(" ").pop()!.toLowerCase()),
-  );
-
   if (!homeStats && !awayStats) return null;
 
+  const tidbits = homeStats && awayStats ? buildTidbits(awayStats, homeStats) : [];
   const gameTime = new Date(game.startTime).toLocaleString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
+    weekday: "short", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit",
   });
 
+  const homeEdge = (homeStats && awayStats)
+    ? homeStats.pointsFor > awayStats.pointsFor ? "home"
+    : awayStats.pointsFor > homeStats.pointsFor ? "away" : "none"
+    : "none";
+
+  const defEdge = (homeStats && awayStats)
+    ? homeStats.pointsAgainst < awayStats.pointsAgainst ? "home"
+    : awayStats.pointsAgainst < homeStats.pointsAgainst ? "away" : "none"
+    : "none";
+
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Swords className="h-3.5 w-3.5 text-orange-500" />
-          <span className="text-xs font-semibold text-slate-400">
-            {game.awayTeam.split(" ").pop()} @ {game.homeTeam.split(" ").pop()}
-          </span>
+    <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/[0.05] px-4 py-3">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <span className="text-slate-400">{game.awayTeam.split(" ").slice(-1)[0]}</span>
+          <span className="text-slate-700">@</span>
+          <span className="text-white">{game.homeTeam.split(" ").slice(-1)[0]}</span>
         </div>
         <span className="text-[11px] text-slate-600">{gameTime}</span>
       </div>
 
-      <div className="flex gap-6">
-        {awayStats && (
-          <TeamCard
-            team={awayStats}
-            injuryReport={awayInjuries}
-            label="Away"
-            league={league}
-          />
-        )}
-        {awayStats && homeStats && (
-          <div className="flex flex-col items-center justify-center gap-1 text-slate-700">
-            <div className="h-full w-px bg-white/[0.05]" />
-            <span className="text-xs font-bold">VS</span>
-            <div className="h-full w-px bg-white/[0.05]" />
+      <div className="p-4">
+        {/* Team headers */}
+        <div className="mb-3 grid grid-cols-3 text-center">
+          <div>
+            <div className="text-xs font-bold text-slate-300">{awayStats?.abbreviation ?? game.awayTeam.split(" ").slice(-1)[0]}</div>
+            <div className="text-[11px] text-slate-600">{awayStats ? `${awayStats.wins}-${awayStats.losses}` : "—"}</div>
+            {awayStats?.streak && <FormBadge streak={awayStats.streak} />}
+          </div>
+          <div className="flex items-center justify-center">
+            <span className="text-xs font-black text-slate-700">VS</span>
+          </div>
+          <div className="text-right">
+            <div className="text-xs font-bold text-slate-300">{homeStats?.abbreviation ?? game.homeTeam.split(" ").slice(-1)[0]}</div>
+            <div className="text-[11px] text-slate-600">{homeStats ? `${homeStats.wins}-${homeStats.losses}` : "—"}</div>
+            {homeStats?.streak && <div className="flex justify-end"><FormBadge streak={homeStats.streak} /></div>}
+          </div>
+        </div>
+
+        {/* Stats comparison */}
+        {homeStats && awayStats && (
+          <div className="divide-y divide-white/[0.04] rounded-lg border border-white/[0.04] bg-white/[0.01] px-3">
+            <StatRow
+              label="Win%"
+              away={`${(awayStats.winPct * 100).toFixed(1)}%`}
+              home={`${(homeStats.winPct * 100).toFixed(1)}%`}
+              highlight={homeStats.winPct > awayStats.winPct ? "home" : homeStats.winPct < awayStats.winPct ? "away" : "none"}
+            />
+            {homeStats.pointsFor > 0 && (
+              <StatRow label="Off PPG" away={homeStats.pointsFor > 0 ? awayStats.pointsFor.toFixed(1) : "—"} home={homeStats.pointsFor.toFixed(1)} highlight={homeEdge} />
+            )}
+            {homeStats.pointsAgainst > 0 && (
+              <StatRow label="Def PPG" away={awayStats.pointsAgainst.toFixed(1)} home={homeStats.pointsAgainst.toFixed(1)} highlight={defEdge} />
+            )}
+            {homeStats.homeRecord && (
+              <StatRow label="Home / Away" away={awayStats.awayRecord || "—"} home={homeStats.homeRecord || "—"} />
+            )}
           </div>
         )}
-        {homeStats && (
-          <TeamCard
-            team={homeStats}
-            injuryReport={homeInjuries}
-            label="Home"
-            league={league}
-          />
+
+        {/* Tidbits */}
+        {tidbits.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {tidbits.map((tip, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-lg bg-orange-500/[0.05] px-3 py-2">
+                <Lightbulb className="mt-0.5 h-3 w-3 shrink-0 text-orange-500/60" />
+                <span className="text-[11px] leading-relaxed text-slate-400">{tip}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function StandingsTable({ teams, league }: { teams: TeamStats[]; league: League }) {
-  const labels = SCORE_LABEL[league];
-  const grouped = teams.reduce<Record<string, TeamStats[]>>((acc, t) => {
-    const key = t.division ? `${t.conference} ${t.division}` : (t.conference ?? "");
+function StandingsTable({ standings }: { standings: TeamRecord[] }) {
+  const grouped = standings.reduce<Record<string, TeamRecord[]>>((acc, t) => {
+    const key = t.conference || "League";
     (acc[key] ??= []).push(t);
     return acc;
   }, {});
 
   return (
     <div className="space-y-6">
-      {Object.entries(grouped).map(([group, groupTeams]) => (
+      {Object.entries(grouped).map(([group, teams]) => (
         <div key={group}>
-          {group && (
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-              {group}
-            </div>
-          )}
-          <div className="overflow-x-auto">
+          {group && <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-600">{group}</div>}
+          <div className="overflow-x-auto rounded-xl border border-white/[0.06]">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/[0.05] text-[11px] uppercase tracking-wider text-slate-600">
-                  <th className="pb-2 text-left font-medium">Team</th>
-                  <th className="pb-2 text-center font-medium">W</th>
-                  <th className="pb-2 text-center font-medium">L</th>
-                  <th className="pb-2 text-center font-medium">Win%</th>
-                  <th className="pb-2 text-center font-medium">{labels.for}</th>
-                  <th className="pb-2 text-center font-medium">{labels.against}</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Team</th>
+                  <th className="px-3 py-2.5 text-center font-medium">W</th>
+                  <th className="px-3 py-2.5 text-center font-medium">L</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Win%</th>
+                  <th className="px-3 py-2.5 text-center font-medium">GB</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Home</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Away</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Streak</th>
                 </tr>
               </thead>
               <tbody>
-                {groupTeams
-                  .sort((a, b) => b.winPct - a.winPct)
-                  .map((t) => (
-                    <tr key={t.id} className="border-b border-white/[0.03]">
-                      <td className="py-2 font-medium">
-                        <span className="mr-2 text-[11px] text-slate-600">{t.alias}</span>
-                        <span className="text-slate-300">{t.name}</span>
-                      </td>
-                      <td className="py-2 text-center text-slate-300">{t.wins}</td>
-                      <td className="py-2 text-center text-slate-300">{t.losses}</td>
-                      <td className="py-2 text-center text-orange-400">
-                        {(t.winPct * 100).toFixed(1)}%
-                      </td>
-                      <td className="py-2 text-center text-emerald-400">
-                        {t.pointsFor.toFixed(1)}
-                      </td>
-                      <td className="py-2 text-center text-red-400">
-                        {t.pointsAgainst.toFixed(1)}
-                      </td>
-                    </tr>
-                  ))}
+                {[...teams].sort((a, b) => b.winPct - a.winPct).map((t, i) => (
+                  <tr key={t.id} className={`border-b border-white/[0.03] ${i === 0 ? "bg-orange-500/[0.03]" : ""}`}>
+                    <td className="px-4 py-2.5">
+                      <span className="mr-2 text-[11px] text-slate-600">{t.abbreviation}</span>
+                      <span className="text-slate-300">{t.name}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-slate-300">{t.wins}</td>
+                    <td className="px-3 py-2.5 text-center text-slate-300">{t.losses}</td>
+                    <td className="px-3 py-2.5 text-center font-semibold text-orange-400">{(t.winPct * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2.5 text-center text-slate-500">{t.gamesBack > 0 ? t.gamesBack.toFixed(1) : "—"}</td>
+                    <td className="px-3 py-2.5 text-center text-slate-400">{t.homeRecord || "—"}</td>
+                    <td className="px-3 py-2.5 text-center text-slate-400">{t.awayRecord || "—"}</td>
+                    <td className="px-3 py-2.5 text-center"><FormBadge streak={t.streak} /></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -273,12 +178,44 @@ function StandingsTable({ teams, league }: { teams: TeamStats[]; league: League 
   );
 }
 
+function NewsCard({ item }: { item: NewsItem }) {
+  const date = item.published
+    ? new Date(item.published).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : "";
+  return (
+    <a
+      href={item.url || "#"}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex gap-4 rounded-xl border border-white/[0.05] bg-white/[0.02] p-4 transition hover:border-white/[0.1] hover:bg-white/[0.04]"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold leading-snug text-slate-200 group-hover:text-white">
+            {item.headline}
+          </p>
+          {item.url && <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-700 group-hover:text-slate-500" />}
+        </div>
+        {item.description && (
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{item.description}</p>
+        )}
+        <div className="mt-2 flex items-center gap-2">
+          {item.teams.slice(0, 2).map((t) => (
+            <span key={t} className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-slate-500">{t}</span>
+          ))}
+          {date && <span className="text-[10px] text-slate-700">{date}</span>}
+        </div>
+      </div>
+    </a>
+  );
+}
+
 export default function StatsPage() {
-  const [league, setLeague] = useState<League>(LEAGUES[0] ?? "NFL");
+  const [league, setLeague] = useState<League>("NBA");
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [games, setGames] = useState<GameCard[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"preview" | "standings" | "injuries">("preview");
+  const [activeTab, setActiveTab] = useState<"preview" | "standings" | "news">("preview");
 
   useEffect(() => {
     setLoading(true);
@@ -289,164 +226,106 @@ export default function StatsPage() {
     ])
       .then(([statsData, gamesData]) => {
         setStats(statsData);
-        const leagueGames = (gamesData.games ?? []).filter(
-          (g: GameCard) => g.league.startsWith(league),
+        setGames(
+          (gamesData.games ?? []).filter((g: GameCard) =>
+            g.league.toUpperCase().startsWith(league),
+          ),
         );
-        setGames(leagueGames);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [league]);
 
-  const matchupGames = games.filter((g) => {
-    if (!stats?.standings.length) return false;
-    return (
-      matchTeam(g.homeTeam, stats.standings) ||
-      matchTeam(g.awayTeam, stats.standings)
-    );
-  });
+  const previewGames = games.filter(
+    (g) => stats?.standings.length && (matchTeam(g.homeTeam, stats.standings) || matchTeam(g.awayTeam, stats.standings)),
+  );
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Statistics</h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            Advanced team stats and injury reports
+            Team stats, standings, and league news
           </p>
         </div>
         <div className="flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
-          <Activity className="h-3 w-3 text-orange-500" />
-          Powered by SportRadar
+          <Trophy className="h-3 w-3 text-orange-500" />
+          Powered by ESPN
         </div>
       </div>
 
       {/* League filter */}
-      <div className="mb-6 flex gap-1.5">
+      <div className="mb-5 flex flex-wrap gap-1.5">
         {LEAGUES.map((l) => (
           <button
             key={l}
             onClick={() => setLeague(l)}
-            className={`rounded-lg border px-4 py-1.5 text-xs font-semibold transition-colors ${
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
               league === l
                 ? "border-orange-500/40 bg-orange-500/15 text-orange-400"
                 : "border-white/[0.06] bg-white/[0.02] text-slate-500 hover:text-slate-300"
             }`}
           >
-            {l}
+            {ESPN_LEAGUES[l].label}
           </button>
         ))}
       </div>
 
-      {/* Tab bar */}
-      <div className="mb-6 flex gap-4 border-b border-white/[0.05]">
-        {(["preview", "standings", "injuries"] as const).map((tab) => (
+      {/* Tabs */}
+      <div className="mb-6 flex gap-5 border-b border-white/[0.05]">
+        {(["preview", "standings", "news"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`-mb-px pb-3 text-sm font-medium capitalize transition-colors ${
+            className={`-mb-px flex items-center gap-1.5 pb-3 text-sm font-medium transition-colors ${
               activeTab === tab
                 ? "border-b-2 border-orange-500 text-orange-400"
                 : "text-slate-600 hover:text-slate-400"
             }`}
           >
-            {tab === "preview" ? "Game Previews" : tab === "standings" ? "Standings" : "Injury Report"}
+            {tab === "preview" ? "Game Previews" : tab === "standings" ? "Standings" : (
+              <><Newspaper className="h-3.5 w-3.5" />News</>
+            )}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <Skeleton key={i} className="h-48 w-full" />
-          ))}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-64 w-full" />)}
         </div>
       ) : !stats?.hasData ? (
         <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-10 text-center">
-          <BarChart3 className="mx-auto mb-3 h-8 w-8 text-slate-700" />
-          <p className="text-sm text-slate-500">
-            No SportRadar data available for {league}.
-          </p>
-          <p className="mt-1 text-xs text-slate-700">
-            Check that <code className="text-slate-600">SPORTRADAR_API_KEY</code> is set in Render and that {league} is included in your SportRadar trial package. Your current trial may only cover select leagues — check your SportRadar dashboard to confirm which are active.
-          </p>
+          <Trophy className="mx-auto mb-3 h-8 w-8 text-slate-700" />
+          <p className="text-sm text-slate-500">No ESPN data available for {league} right now.</p>
+          <p className="mt-1 text-xs text-slate-700">This league may be in its offseason.</p>
         </div>
       ) : (
         <>
           {activeTab === "preview" && (
-            <div className="space-y-4">
-              {matchupGames.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  No upcoming {league} games found — stats are available in the Standings tab.
-                </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {previewGames.length === 0 ? (
+                <div className="col-span-2 rounded-xl border border-white/[0.05] bg-white/[0.02] p-8 text-center">
+                  <p className="text-sm text-slate-500">No upcoming {league} games found in today&apos;s schedule.</p>
+                  <p className="mt-1 text-xs text-slate-600">Check the Standings tab to browse team stats.</p>
+                </div>
               ) : (
-                matchupGames.map((g) => (
-                  <GameMatchup
-                    key={g.id}
-                    game={g}
-                    standings={stats.standings}
-                    injuries={stats.injuries}
-                    league={league}
-                  />
+                previewGames.map((g) => (
+                  <GamePreviewCard key={g.id} game={g} standings={stats.standings} />
                 ))
               )}
             </div>
           )}
 
-          {activeTab === "standings" && (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-              <StandingsTable teams={stats.standings} league={league} />
-            </div>
-          )}
+          {activeTab === "standings" && <StandingsTable standings={stats.standings} />}
 
-          {activeTab === "injuries" && (
-            <div className="space-y-4">
-              {stats.injuries.length === 0 ? (
-                <p className="text-sm text-slate-500">No injuries reported for {league}.</p>
+          {activeTab === "news" && (
+            <div className="space-y-3">
+              {stats.news.length === 0 ? (
+                <p className="text-sm text-slate-500">No recent news for {league}.</p>
               ) : (
-                stats.injuries
-                  .filter((r) => r.players.some((p) => p.status === "out" || p.status === "doubtful"))
-                  .sort((a, b) => {
-                    const aOut = a.players.filter((p) => p.status === "out").length;
-                    const bOut = b.players.filter((p) => p.status === "out").length;
-                    return bOut - aOut;
-                  })
-                  .map((report) => (
-                    <div key={report.teamId} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                      <div className="mb-3 flex items-center gap-2">
-                        <Shield className="h-3.5 w-3.5 text-slate-600" />
-                        <span className="text-sm font-semibold">{report.teamName}</span>
-                        <span className="text-[11px] text-slate-600">
-                          {report.players.filter((p) => p.status === "out").length} out,{" "}
-                          {report.players.filter((p) => p.status === "doubtful").length} doubtful
-                        </span>
-                      </div>
-                      <div className="grid gap-1.5 sm:grid-cols-2">
-                        {report.players
-                          .sort((a, b) => b.impactScore - a.impactScore)
-                          .map((p) => (
-                            <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.04] bg-white/[0.01] px-3 py-2">
-                              <div>
-                                <div className="text-xs font-medium text-slate-300">
-                                  {p.position && (
-                                    <span className="mr-1.5 text-slate-600">{p.position}</span>
-                                  )}
-                                  {p.name}
-                                </div>
-                                {p.description && (
-                                  <div className="text-[11px] text-slate-600">{p.description}</div>
-                                )}
-                              </div>
-                              <span
-                                className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLE[p.status]}`}
-                              >
-                                {p.status}
-                              </span>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  ))
+                stats.news.map((item) => <NewsCard key={item.id} item={item} />)
               )}
             </div>
           )}

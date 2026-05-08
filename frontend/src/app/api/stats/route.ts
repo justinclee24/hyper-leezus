@@ -1,24 +1,22 @@
 import { NextResponse } from "next/server";
-import { fetchStandings, fetchInjuries } from "@/lib/sportradar";
-
-const SUPPORTED = ["NFL", "NBA", "NHL", "MLB"];
+import { fetchStandings, fetchNews, ESPN_LEAGUES } from "@/lib/espn";
 
 export async function GET(req: Request) {
-  const league = new URL(req.url).searchParams.get("league")?.toUpperCase() ?? "NFL";
-  if (!SUPPORTED.includes(league)) {
+  const league = new URL(req.url).searchParams.get("league")?.toUpperCase() ?? "NBA";
+  if (!ESPN_LEAGUES[league]) {
     return NextResponse.json({ error: "Unsupported league" }, { status: 400 });
   }
 
-  const [standings, injuries] = await Promise.all([
+  const [standings, news] = await Promise.all([
     fetchStandings(league),
-    fetchInjuries(league),
+    fetchNews(league),
   ]);
 
   return NextResponse.json({
     league,
     standings,
-    injuries,
+    news,
+    hasData: standings.length > 0 || news.length > 0,
     updatedAt: new Date().toISOString(),
-    hasData: standings.length > 0 || injuries.length > 0,
   });
 }

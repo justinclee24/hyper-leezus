@@ -92,10 +92,12 @@ function Metric({
   icon,
   label,
   value,
+  loading,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  loading?: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3">
@@ -103,7 +105,11 @@ function Metric({
         {icon}
       </div>
       <div>
-        <div className="text-lg font-bold leading-tight">{value}</div>
+        {loading ? (
+          <div className="mb-1 h-5 w-16 animate-pulse rounded bg-white/[0.06]" />
+        ) : (
+          <div className="text-lg font-bold leading-tight">{value}</div>
+        )}
         <div className="text-xs text-slate-500">{label}</div>
       </div>
     </div>
@@ -147,12 +153,36 @@ function formatTabLabel(dateStr: string, today: string, tomorrow: string) {
   return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
+interface ModelStatsPayload {
+  models: Record<string, { metrics: Record<string, number>; is_real: boolean }>;
+  leagues: string[];
+}
+
+function computeMetrics(data: ModelStatsPayload | null) {
+  if (!data) return { leagueCount: "—", calibration: "—", roi: "—" };
+  const entries = Object.values(data.models);
+  if (entries.length === 0) return { leagueCount: "—", calibration: "—", roi: "—" };
+  const real = entries.filter((e) => e.is_real);
+  const leagueCount = real.length > 0 ? `${real.length}` : `${entries.length}`;
+  const calValues = entries.map((e) => e.metrics?.calibration_error ?? 0).filter((v) => v > 0);
+  const roiValues = entries.map((e) => e.metrics?.roi_against_closing_line ?? 0);
+  const avgCal = calValues.length ? calValues.reduce((a, b) => a + b, 0) / calValues.length : 0;
+  const avgRoi = roiValues.length ? roiValues.reduce((a, b) => a + b, 0) / roiValues.length : 0;
+  return {
+    leagueCount,
+    calibration: calValues.length ? `${(avgCal * 100).toFixed(1)}% ECE` : "—",
+    roi: roiValues.length ? `${avgRoi >= 0 ? "+" : ""}${(avgRoi * 100).toFixed(1)}%` : "—",
+  };
+}
+
 export default function HomePage() {
   const [allGames, setAllGames] = useState<GameCard[]>([]);
   const [allPicks, setAllPicks] = useState<BetRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [gamesReason, setGamesReason] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [modelStats, setModelStats] = useState<ModelStatsPayload | null>(null);
+  const [modelStatsLoading, setModelStatsLoading] = useState(true);
   // Initialized empty — set client-side only to avoid SSR/client timezone hydration mismatch
   const [selectedDate, setSelectedDate] = useState("");
   const [dateOptions, setDateOptions] = useState<string[]>([]);
@@ -173,6 +203,14 @@ export default function HomePage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/model-stats")
+      .then((r) => r.json())
+      .then((data) => setModelStats(data))
+      .catch(() => {})
+      .finally(() => setModelStatsLoading(false));
   }, []);
 
   const today = selectedDate;
@@ -196,13 +234,15 @@ export default function HomePage() {
 
   const activeLeagues = [...new Set(allGames.map((g) => g.league))].sort();
 
+  const { leagueCount, calibration, roi } = computeMetrics(modelStats);
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
       <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Metric icon={<TrendingUp className="h-4 w-4" />} label="Leagues" value="8+" />
+        <Metric icon={<TrendingUp className="h-4 w-4" />} label="Leagues Covered" value={leagueCount} loading={modelStatsLoading} />
         <Metric icon={<Clock className="h-4 w-4" />} label="Ingestion" value="24/7" />
-        <Metric icon={<Target className="h-4 w-4" />} label="Calibration" value="2.2% ECE" />
-        <Metric icon={<BarChart3 className="h-4 w-4" />} label="Model ROI" value="+4.1%" />
+        <Metric icon={<Target className="h-4 w-4" />} label="Calibration" value={calibration} loading={modelStatsLoading} />
+        <Metric icon={<BarChart3 className="h-4 w-4" />} label="Model ROI" value={roi} loading={modelStatsLoading} />
       </div>
 
       <div className="mb-8">
