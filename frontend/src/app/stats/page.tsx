@@ -6,8 +6,16 @@ import type { TeamStats, TeamInjuryReport, InjuredPlayer } from "@/lib/sportrada
 import type { GameCard } from "@/lib/data";
 import { matchTeam } from "@/lib/sportradar";
 
-const LEAGUES = ["NFL", "NBA", "NHL", "MLB"] as const;
-type League = (typeof LEAGUES)[number];
+const ALL_LEAGUES = ["NFL", "NBA", "NHL", "MLB"] as const;
+type League = (typeof ALL_LEAGUES)[number];
+
+// Env var set at build time — only show leagues in the SportRadar trial package
+const ENABLED_LEAGUES = (process.env.NEXT_PUBLIC_SPORTRADAR_LEAGUES ?? "nfl")
+  .split(",")
+  .map((s) => s.trim().toUpperCase())
+  .filter((s): s is League => ALL_LEAGUES.includes(s as League));
+
+const LEAGUES: readonly League[] = ENABLED_LEAGUES.length > 0 ? ENABLED_LEAGUES : ALL_LEAGUES;
 
 const SCORE_LABEL: Record<League, { for: string; against: string }> = {
   NFL: { for: "Pts/G", against: "Opp/G" },
@@ -266,7 +274,7 @@ function StandingsTable({ teams, league }: { teams: TeamStats[]; league: League 
 }
 
 export default function StatsPage() {
-  const [league, setLeague] = useState<League>("NFL");
+  const [league, setLeague] = useState<League>(LEAGUES[0] ?? "NFL");
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [games, setGames] = useState<GameCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -360,7 +368,7 @@ export default function StatsPage() {
             No SportRadar data available for {league}.
           </p>
           <p className="mt-1 text-xs text-slate-700">
-            Confirm <code className="text-slate-600">SPORTRADAR_API_KEY</code> is set and {league} is in your trial package.
+            Check that <code className="text-slate-600">SPORTRADAR_API_KEY</code> is set in Render and that {league} is included in your SportRadar trial package. Your current trial may only cover select leagues — check your SportRadar dashboard to confirm which are active.
           </p>
         </div>
       ) : (

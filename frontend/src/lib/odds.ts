@@ -1,4 +1,5 @@
 import type { BetRecommendation, GameCard } from "./data";
+import { getOddsCache, setOddsCache } from "./db";
 
 export const SPORTS: Record<string, string> = {
   basketball_nba: "NBA",
@@ -222,19 +223,35 @@ export function derivePicksForGame(game: GameCard): BetRecommendation[] {
   return derivePicks([game]);
 }
 
-// In-memory cache — survives across requests within the same server process.
-// The Odds API free tier is 500 req/month (8 sports per refresh = ~62 refreshes/month).
-// 2-hour TTL = ~22 refreshes/month, well within budget.
+// Two-layer cache to survive Render free-tier cold starts:
+//   L1: module-level memory  — fast, lost on restart
+//   L2: database             — persistent across restarts
+//
+// Free tier: 500 req/month ÷ 8 sports = 62 refresh cycles/month.
+// 12-hour TTL = 2 cycles/day × 8 sports × 30 days = 480 req/month — safely within budget.
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const DB_CACHE_KEY = "upcoming_games";
+
 let _cachedGames: GameCard[] | null = null;
 let _cacheExpiry = 0;
-const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 export async function fetchUpcomingGames(): Promise<GameCard[]> {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) return [];
 
   const now = Date.now();
+
+  // L1: in-process memory cache
   if (_cachedGames && now < _cacheExpiry) return _cachedGames;
+
+  // L2: database cache (survives cold starts)
+  const dbCache = await getOddsCache(DB_CACHE_KEY);
+  if (dbCache && now - dbCache.fetchedAt.getTime() < CACHE_TTL_MS) {
+    const games = dbCache.payload as GameCard[];
+    _cachedGames = games;
+    _cacheExpiry = dbCache.fetchedAt.getTime() + CACHE_TTL_MS;
+    return games;
+  }
 
   const games: GameCard[] = [];
   let remaining: string | null = null;
@@ -274,10 +291,14 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
     console.log(`[odds] requests remaining this month: ${remaining}`);
   }
 
-  if (games.length > 0) {
-    _cachedGames = games;
+  const sorted = games.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  if (sorted.length > 0) {
+    // Write both cache layers
+    _cachedGames = sorted;
     _cacheExpiry = now + CACHE_TTL_MS;
+    await setOddsCache(DB_CACHE_KEY, sorted);
   }
 
-  return games.sort((a, b) => a.startTime.localeCompare(b.startTime));
+  return sorted;
 }

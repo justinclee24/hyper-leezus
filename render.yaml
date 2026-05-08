@@ -110,6 +110,8 @@ services:
         value: REG
       - key: NFL_WEEK
         value: "1"
+      - key: NEXT_PUBLIC_SPORTRADAR_LEAGUES
+        value: "nfl"
     plan: free
 
   - type: cron

@@ -26,6 +26,13 @@ async function ensureSchema(): Promise<void> {
     )
   `);
   await pool().query(`
+    CREATE TABLE IF NOT EXISTS odds_cache (
+      cache_key   TEXT        PRIMARY KEY,
+      payload     JSONB       NOT NULL,
+      fetched_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool().query(`
     CREATE TABLE IF NOT EXISTS tracked_bets (
       id          TEXT        PRIMARY KEY,
       user_id     UUID        NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
@@ -131,4 +138,36 @@ export async function deleteTrackedBet(userId: string, id: string): Promise<void
     "DELETE FROM tracked_bets WHERE id = $1 AND user_id = $2",
     [id, userId],
   );
+}
+
+// ─── Odds cache ───────────────────────────────────────────────────────────────
+
+export async function getOddsCache(
+  key: string,
+): Promise<{ payload: unknown; fetchedAt: Date } | null> {
+  try {
+    await ensureSchema();
+    const { rows } = await pool().query<{ payload: unknown; fetched_at: Date }>(
+      "SELECT payload, fetched_at FROM odds_cache WHERE cache_key = $1",
+      [key],
+    );
+    if (!rows[0]) return null;
+    return { payload: rows[0].payload, fetchedAt: rows[0].fetched_at };
+  } catch {
+    return null;
+  }
+}
+
+export async function setOddsCache(key: string, payload: unknown): Promise<void> {
+  try {
+    await ensureSchema();
+    await pool().query(
+      `INSERT INTO odds_cache (cache_key, payload, fetched_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (cache_key) DO UPDATE SET payload = $2, fetched_at = now()`,
+      [key, JSON.stringify(payload)],
+    );
+  } catch {
+    // Non-critical — in-memory cache still works
+  }
 }
