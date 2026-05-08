@@ -44,7 +44,7 @@ function GamePreviewCard({ game, standings }: { game: GameCard; standings: TeamR
   const awayStats = matchTeam(game.awayTeam, standings);
   if (!homeStats && !awayStats) return null;
 
-  const tidbits = homeStats && awayStats ? buildTidbits(awayStats, homeStats) : [];
+  const tidbits = homeStats && awayStats ? buildTidbits(awayStats, homeStats, game.league) : [];
   const gameTime = new Date(game.startTime).toLocaleString("en-US", {
     weekday: "short", month: "short", day: "numeric",
     hour: "numeric", minute: "2-digit",

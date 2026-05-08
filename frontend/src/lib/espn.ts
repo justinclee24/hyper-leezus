@@ -73,21 +73,30 @@ function parseEntry(entry: any, conf: string): TeamRecord {
   const stats: any[] = entry.stats ?? [];
   const wins   = statVal(stats, "wins");
   const losses = statVal(stats, "losses");
-  const gp     = wins + losses || 1;
+  const gp     = statVal(stats, "gamesPlayed") || wins + losses || 1;
+
+  // Prefer per-game averages; fall back to season totals ÷ games played
+  const rawPtsFor     = statVal(stats, "pointsFor");
+  const rawPtsAgainst = statVal(stats, "pointsAgainst");
+  const ptsFor = statVal(stats, "avgPointsFor") || statVal(stats, "pointsScoredAvg")
+    || (rawPtsFor > 0 ? rawPtsFor / gp : 0);
+  const ptsAgainst = statVal(stats, "avgPointsAgainst") || statVal(stats, "pointsAllowedAvg")
+    || (rawPtsAgainst > 0 ? rawPtsAgainst / gp : 0);
+
   return {
-    id:           entry.team?.id ?? "",
-    name:         entry.team?.displayName ?? entry.team?.name ?? "",
-    abbreviation: entry.team?.abbreviation ?? "",
+    id:            entry.team?.id ?? "",
+    name:          entry.team?.displayName ?? entry.team?.name ?? "",
+    abbreviation:  entry.team?.abbreviation ?? "",
     wins,
     losses,
-    winPct:       statVal(stats, "winPercent") || (wins / gp),
-    pointsFor:    statVal(stats, "pointsFor")  || statVal(stats, "avgPointsFor")  || statVal(stats, "pointsScoredAvg"),
-    pointsAgainst: statVal(stats, "pointsAgainst") || statVal(stats, "avgPointsAgainst") || statVal(stats, "pointsAllowedAvg"),
-    streak:       statDisp(stats, "streak") || statDisp(stats, "streakSummary"),
-    homeRecord:   statDisp(stats, "home")   || statDisp(stats, "homeRecord"),
-    awayRecord:   statDisp(stats, "road")   || statDisp(stats, "awayRecord"),
-    conference:   conf,
-    gamesBack:    statVal(stats, "gamesBehind"),
+    winPct:        statVal(stats, "winPercent") || (wins / gp),
+    pointsFor:     ptsFor,
+    pointsAgainst: ptsAgainst,
+    streak:        statDisp(stats, "streak") || statDisp(stats, "streakSummary"),
+    homeRecord:    statDisp(stats, "home")   || statDisp(stats, "homeRecord"),
+    awayRecord:    statDisp(stats, "road")   || statDisp(stats, "awayRecord"),
+    conference:    conf,
+    gamesBack:     statVal(stats, "gamesBehind"),
   };
 }
 
@@ -104,26 +113,25 @@ export async function fetchStandings(leagueKey: string): Promise<TeamRecord[]> {
   if (!data) return [];
 
   const teams: TeamRecord[] = [];
-  // ESPN wraps in groups/children at multiple nesting levels
   const groups: any[] = data.children ?? data.groups ?? [];
   for (const group of groups) {
     const confName: string = group.name ?? group.abbreviation ?? "";
-    const inner: any[] = group.children ?? group.standings?.entries ?? [];
-    // Handle two-level nesting (conference → division)
-    for (const sub of inner) {
-      const entries: any[] = sub.standings?.entries ?? sub.entries ?? (Array.isArray(sub) ? sub : []);
-      if (entries.length) {
+    const divisions: any[] = group.children ?? [];
+    if (divisions.length) {
+      // Two-level: conference → divisions → team entries
+      for (const div of divisions) {
+        const entries: any[] = div.standings?.entries ?? div.entries ?? [];
         for (const entry of entries) teams.push(parseEntry(entry, confName));
-      } else {
-        // sub is itself a group-level entry
-        teams.push(parseEntry(sub, confName));
       }
+    } else {
+      // One-level: conference → team entries directly
+      const entries: any[] = group.standings?.entries ?? group.entries ?? [];
+      for (const entry of entries) teams.push(parseEntry(entry, confName));
     }
-    // Flat entries directly on group
-    const direct: any[] = group.standings?.entries ?? [];
-    for (const entry of direct) teams.push(parseEntry(entry, confName));
   }
-  return teams.filter((t) => t.id);
+  // Deduplicate by team id (safety net for leagues with overlapping response shapes)
+  const seen = new Set<string>();
+  return teams.filter((t) => { if (!t.id || seen.has(t.id)) return false; seen.add(t.id); return true; });
 }
 
 export async function fetchNews(leagueKey: string): Promise<NewsItem[]> {
@@ -162,39 +170,46 @@ export function matchTeam(oddsName: string, teams: TeamRecord[]): TeamRecord | u
   );
 }
 
-// Generate betting-relevant tidbits from two team records
-export function buildTidbits(away: TeamRecord, home: TeamRecord): string[] {
-  const tips: string[] = [];
+// PPG difference threshold at which a scoring/defensive edge is worth calling out
+const PPG_THRESHOLD: Record<string, number> = {
+  NHL: 0.4, MLS: 0.3, EPL: 0.3,
+};
 
-  // Streak
-  const homeStreak  = parseInt(home.streak?.slice(1) ?? "0");
-  const awayStreak  = parseInt(away.streak?.slice(1) ?? "0");
+// Generate betting-relevant tidbits from two team records
+export function buildTidbits(away: TeamRecord, home: TeamRecord, league?: string): string[] {
+  const tips: string[] = [];
+  const ptsThreshold = PPG_THRESHOLD[league?.toUpperCase() ?? ""] ?? 3;
+  const scoringLabel = ["NHL"].includes(league?.toUpperCase() ?? "") ? "goals" : ["MLS", "EPL"].includes(league?.toUpperCase() ?? "") ? "goals" : "points";
+
+  // Streak (require 3+ game streak to mention it)
+  const homeStreak   = parseInt(home.streak?.slice(1) ?? "0");
+  const awayStreak   = parseInt(away.streak?.slice(1) ?? "0");
   const homeStreakDir = home.streak?.charAt(0);
   const awayStreakDir = away.streak?.charAt(0);
-  if (homeStreak >= 3)  tips.push(`${home.name} is on a ${homeStreakDir}${homeStreak} streak`);
-  if (awayStreak >= 3)  tips.push(`${away.name} is on a ${awayStreakDir}${awayStreak} streak`);
+  if (homeStreak >= 3) tips.push(`${home.name} on a ${homeStreak}-game ${homeStreakDir === "W" ? "win" : "losing"} streak`);
+  if (awayStreak >= 3) tips.push(`${away.name} on a ${awayStreak}-game ${awayStreakDir === "W" ? "win" : "losing"} streak`);
 
   // Scoring edge
   if (home.pointsFor > 0 && away.pointsFor > 0) {
     const diff = home.pointsFor - away.pointsFor;
-    if (Math.abs(diff) >= 3) {
+    if (Math.abs(diff) >= ptsThreshold) {
       const better = diff > 0 ? home : away;
-      tips.push(`${better.name} averages ${Math.abs(diff).toFixed(1)} more points per game`);
+      tips.push(`${better.name} averages ${Math.abs(diff).toFixed(1)} more ${scoringLabel} per game`);
     }
   }
 
   // Defensive edge
   if (home.pointsAgainst > 0 && away.pointsAgainst > 0) {
     const diff = away.pointsAgainst - home.pointsAgainst;
-    if (Math.abs(diff) >= 3) {
+    if (Math.abs(diff) >= ptsThreshold) {
       const better = diff > 0 ? home : away;
-      tips.push(`${better.name} allows ${Math.abs(diff).toFixed(1)} fewer points per game`);
+      tips.push(`${better.name} allows ${Math.abs(diff).toFixed(1)} fewer ${scoringLabel} per game`);
     }
   }
 
   // Home/away record context
-  if (home.homeRecord)  tips.push(`${home.name} at home: ${home.homeRecord}`);
-  if (away.awayRecord)  tips.push(`${away.name} on the road: ${away.awayRecord}`);
+  if (home.homeRecord) tips.push(`${home.name} at home: ${home.homeRecord}`);
+  if (away.awayRecord) tips.push(`${away.name} on the road: ${away.awayRecord}`);
 
   // Win% edge
   const wDiff = home.winPct - away.winPct;
