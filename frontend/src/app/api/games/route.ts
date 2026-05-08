@@ -67,10 +67,16 @@ export async function GET() {
     for (let i = 0; i < games.length; i++) {
       const p = predictions[i];
       if (!p) continue;
+      // Adaptive blend: model weight scales with its own confidence (0.4–0.75).
+      // A coin-flip prediction (confidence≈0.5) gets low weight; a strong call
+      // (confidence≈0.9) gets higher weight. Market odds act as a calibrated floor.
+      const modelWeight = Math.min(0.75, 0.4 + 0.35 * p.confidence);
+      const marketWeight = 1 - modelWeight;
       games[i] = {
         ...games[i],
-        homeWinProbability:
-          Math.round((p.win_probability_home * 0.6 + games[i].homeWinProbability * 0.4) * 1000) / 1000,
+        homeWinProbability: Math.round(
+          (p.win_probability_home * modelWeight + games[i].homeWinProbability * marketWeight) * 1000,
+        ) / 1000,
         confidence: Math.round(p.confidence * 100) / 100,
       };
     }

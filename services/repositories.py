@@ -145,6 +145,8 @@ class TrainingRepository:
         stmt = (
             select(TeamGameStat)
             .where(TeamGameStat.league == league)
+            .where(TeamGameStat.points_for > 0)   # exclude incomplete/cancelled games
+            .where(TeamGameStat.points_against > 0)
             .order_by(desc(TeamGameStat.game_date))
             .limit(limit)
         )

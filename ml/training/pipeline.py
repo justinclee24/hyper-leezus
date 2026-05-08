@@ -37,9 +37,13 @@ class TrainingOrchestrator:
         run_name = f"{league}-{datetime.now(timezone.utc):%Y%m%d%H%M%S}"
 
         bundle = self.trainer.train(frame, profile, version=run_name, params=params)
+        accuracy = bundle.metrics["accuracy"]
+        # ROI at standard -110 juice: break-even is 52.38% (110/210).
+        # Formula: (210 * acc - 110) / 110 — can go negative for below-breakeven models.
+        roi = (210.0 * accuracy - 110.0) / 110.0
         metrics = bundle.metrics | {
-            "calibration_error": abs(bundle.metrics["brier_score"] - 0.20),
-            "roi_against_closing_line": max(0.0, (bundle.metrics["accuracy"] - 0.52) * 0.35),
+            "calibration_error": bundle.metrics.get("ece", abs(bundle.metrics["brier_score"] - 0.20)),
+            "roi_against_closing_line": round(roi, 4),
         }
         artifact = ModelArtifact(
             league=league,
