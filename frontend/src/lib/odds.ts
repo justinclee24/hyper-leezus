@@ -252,7 +252,10 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
         });
 
       const resp = await fetch(url, { cache: "no-store" });
-      if (!resp.ok) continue;
+      if (!resp.ok) {
+        console.error(`[odds] ${league} fetch failed: HTTP ${resp.status} ${resp.statusText}`);
+        continue;
+      }
 
       // Track quota — logged once per refresh cycle
       remaining = resp.headers.get("x-requests-remaining") ?? remaining;

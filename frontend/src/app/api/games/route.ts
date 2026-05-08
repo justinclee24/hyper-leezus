@@ -53,9 +53,12 @@ async function fetchMLPrediction(game: GameCard): Promise<MLPrediction | null> {
 }
 
 export async function GET() {
+  const hasKey = !!(process.env.ODDS_API_KEY);
   const games = await fetchUpcomingGames();
   if (!games.length) {
-    return NextResponse.json({ games: [], picks: [] });
+    const reason = hasKey ? "api_error_or_quota" : "no_key";
+    console.error(`[games] returning empty games list — reason: ${reason}`);
+    return NextResponse.json({ games: [], picks: [], reason });
   }
 
   // If prediction API is configured, augment probabilities in parallel

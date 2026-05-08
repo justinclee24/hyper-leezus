@@ -151,6 +151,7 @@ export default function HomePage() {
   const [allGames, setAllGames] = useState<GameCard[]>([]);
   const [allPicks, setAllPicks] = useState<BetRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [gamesReason, setGamesReason] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   // Initialized empty — set client-side only to avoid SSR/client timezone hydration mismatch
   const [selectedDate, setSelectedDate] = useState("");
@@ -168,6 +169,7 @@ export default function HomePage() {
       .then((data) => {
         if (data.games?.length) setAllGames(data.games);
         if (data.picks?.length) setAllPicks(data.picks);
+        if (data.reason) setGamesReason(data.reason);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -300,7 +302,9 @@ export default function HomePage() {
         ) : filteredGames.length === 0 ? (
           <p className="text-sm text-slate-500">
             {allGames.length === 0
-              ? "No upcoming games found. Add an ODDS_API_KEY to enable live data."
+              ? gamesReason === "api_error_or_quota"
+                ? "Odds API returned no data — quota may be exhausted or the API key is invalid. Check Render logs for details."
+                : "No upcoming games found. Add an ODDS_API_KEY to enable live data."
               : "No games on this date" + (selectedLeague ? ` for ${selectedLeague}` : "") + "."}
           </p>
         ) : (
