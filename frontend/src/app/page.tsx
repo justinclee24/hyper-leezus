@@ -125,47 +125,62 @@ function matchesQuery(query: string, ...fields: string[]): boolean {
   return fields.some((f) => f.toLowerCase().includes(q));
 }
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+// Local-timezone date helpers — avoids UTC-date mismatch for US users
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function offsetDate(days: number) {
+function offsetLocalDate(days: number) {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return localDateStr(d);
+}
+
+function gameLocalDate(isoString: string) {
+  return localDateStr(new Date(isoString));
 }
 
 function formatTabLabel(dateStr: string) {
-  const today = todayStr();
-  const tomorrow = offsetDate(1);
+  const today = localDateStr();
+  const tomorrow = offsetLocalDate(1);
   if (dateStr === today) return "Today";
   if (dateStr === tomorrow) return "Tomorrow";
-  const d = new Date(dateStr + "T12:00:00Z");
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const [y, m, day] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-const DATE_OPTIONS = Array.from({ length: 7 }, (_, i) => offsetDate(i));
+const DATE_OPTIONS = Array.from({ length: 7 }, (_, i) => offsetLocalDate(i));
 
 export default function HomePage() {
-  const [games, setGames] = useState<GameCard[]>([]);
-  const [picks, setPicks] = useState<BetRecommendation[]>([]);
+  const [allGames, setAllGames] = useState<GameCard[]>([]);
+  const [allPicks, setAllPicks] = useState<BetRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [selectedDate, setSelectedDate] = useState(todayStr());
+  const [selectedDate, setSelectedDate] = useState(localDateStr());
+  const [selectedLeague, setSelectedLeague] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setGames([]);
-    setPicks([]);
-    fetch(`/api/games?date=${selectedDate}`)
+    fetch("/api/games")
       .then((r) => r.json())
       .then((data) => {
-        if (data.games?.length) setGames(data.games);
-        if (data.picks?.length) setPicks(data.picks);
+        if (data.games?.length) setAllGames(data.games);
+        if (data.picks?.length) setAllPicks(data.picks);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [selectedDate]);
+  }, []);
+
+  // All filtering happens client-side using local timezone
+  const games = allGames.filter((g) => {
+    const dateMatch = gameLocalDate(g.startTime) === selectedDate;
+    const leagueMatch = !selectedLeague || g.league === selectedLeague;
+    return dateMatch && leagueMatch;
+  });
+
+  const picks = allPicks.filter((p) => {
+    const leagueMatch = !selectedLeague || p.league === selectedLeague.split(" ")[0];
+    return leagueMatch;
+  });
 
   const filteredGames = games.filter((g) =>
     matchesQuery(query, g.homeTeam, g.awayTeam, g.league),
@@ -173,6 +188,9 @@ export default function HomePage() {
   const filteredPicks = picks.filter((p) =>
     matchesQuery(query, p.matchup, p.league, p.betType, p.pick),
   );
+
+  // Leagues that actually have games in the current dataset
+  const activeLeagues = [...new Set(allGames.map((g) => g.league))].sort();
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
@@ -190,7 +208,7 @@ export default function HomePage() {
       <section className="mb-10">
         <div className="mb-4 flex items-center gap-3">
           <h2 className="text-xl font-bold tracking-tight">
-            {selectedDate === todayStr() ? "Today's Edges" : `${formatTabLabel(selectedDate)} Edges`}
+            {selectedDate === localDateStr() ? "Today's Edges" : `${formatTabLabel(selectedDate)} Edges`}
           </h2>
           {!loading && filteredPicks.length > 0 && (
             <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
@@ -206,7 +224,7 @@ export default function HomePage() {
           </div>
         ) : filteredPicks.length === 0 ? (
           <p className="text-sm text-slate-500">
-            {picks.length === 0 ? "No edges detected right now. Check back soon." : "No picks match your search."}
+            {allPicks.length === 0 ? "No edges detected right now. Check back soon." : "No picks match your search."}
           </p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -221,11 +239,12 @@ export default function HomePage() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-bold tracking-tight">Upcoming Games</h2>
           <span className="text-xs uppercase tracking-[0.25em] text-slate-600">
-            {loading ? "Loading…" : games.length ? "Live data" : "No games"}
+            {loading ? "Loading…" : allGames.length ? "Live data" : "No games"}
           </span>
         </div>
 
-        <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
+        {/* Date tabs */}
+        <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
           {DATE_OPTIONS.map((d) => (
             <button
               key={d}
@@ -240,6 +259,36 @@ export default function HomePage() {
             </button>
           ))}
         </div>
+
+        {/* League filter chips — only show leagues with data */}
+        {!loading && activeLeagues.length > 1 && (
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setSelectedLeague(null)}
+              className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                selectedLeague === null
+                  ? "border-slate-500/40 bg-slate-500/15 text-slate-200"
+                  : "border-white/[0.06] bg-transparent text-slate-600 hover:text-slate-400"
+              }`}
+            >
+              All
+            </button>
+            {activeLeagues.map((league) => (
+              <button
+                key={league}
+                onClick={() => setSelectedLeague(league === selectedLeague ? null : league)}
+                className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  selectedLeague === league
+                    ? "border-orange-500/40 bg-orange-500/15 text-orange-400"
+                    : "border-white/[0.06] bg-transparent text-slate-600 hover:text-slate-400"
+                }`}
+              >
+                {league}
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[...Array(4)].map((_, i) => (
@@ -248,9 +297,9 @@ export default function HomePage() {
           </div>
         ) : filteredGames.length === 0 ? (
           <p className="text-sm text-slate-500">
-            {games.length === 0
+            {allGames.length === 0
               ? "No upcoming games found. Add an ODDS_API_KEY to enable live data."
-              : "No games match your search."}
+              : "No games on this date" + (selectedLeague ? ` for ${selectedLeague}` : "") + "."}
           </p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

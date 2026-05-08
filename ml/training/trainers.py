@@ -43,11 +43,12 @@ class LeagueTrainer:
         y_home = frame["home_score"]
         y_away = frame["away_score"]
 
+        # Time-ordered split: train on oldest 75%, test on most recent 25%
         X_train, X_test, y_class_train, y_class_test = train_test_split(
-            features, y_class, test_size=0.2, shuffle=False
+            features, y_class, test_size=0.25, shuffle=False
         )
-        _, _, y_home_train, y_home_test = train_test_split(features, y_home, test_size=0.2, shuffle=False)
-        _, _, y_away_train, y_away_test = train_test_split(features, y_away, test_size=0.2, shuffle=False)
+        _, _, y_home_train, y_home_test = train_test_split(features, y_home, test_size=0.25, shuffle=False)
+        _, _, y_away_train, y_away_test = train_test_split(features, y_away, test_size=0.25, shuffle=False)
 
         classifier = self._build_classifier(params, y_class_train.nunique())
         home_regressor = self._build_regressor(params)
@@ -95,16 +96,22 @@ class LeagueTrainer:
             return DummyClassifier(strategy="most_frequent")
         if XGBClassifier is not None:
             return XGBClassifier(
-                n_estimators=int(params.get("n_estimators", 140)),
-                max_depth=int(params.get("max_depth", 5)),
-                learning_rate=float(params.get("learning_rate", 0.05)),
-                subsample=0.9,
-                colsample_bytree=0.9,
+                n_estimators=int(params.get("n_estimators", 200)),
+                max_depth=int(params.get("max_depth", 3)),
+                learning_rate=float(params.get("learning_rate", 0.03)),
+                subsample=float(params.get("subsample", 0.7)),
+                colsample_bytree=float(params.get("colsample_bytree", 0.7)),
+                reg_alpha=float(params.get("reg_alpha", 0.5)),
+                reg_lambda=float(params.get("reg_lambda", 2.0)),
+                min_child_weight=int(params.get("min_child_weight", 10)),
+                gamma=float(params.get("gamma", 1.0)),
                 eval_metric="logloss",
+                random_state=42,
             )
         return RandomForestClassifier(
-            n_estimators=int(params.get("n_estimators", 240)),
-            max_depth=int(params.get("max_depth", 8)),
+            n_estimators=int(params.get("n_estimators", 300)),
+            max_depth=int(params.get("max_depth", 4)),
+            min_samples_leaf=int(params.get("min_samples_leaf", 10)),
             random_state=42,
         )
 
@@ -112,16 +119,23 @@ class LeagueTrainer:
     def _build_regressor(params: dict[str, Any]) -> Any:
         if XGBRegressor is not None:
             return XGBRegressor(
-                n_estimators=int(params.get("n_estimators", 140)),
-                max_depth=int(params.get("max_depth", 5)),
-                learning_rate=float(params.get("learning_rate", 0.05)),
-                subsample=0.9,
-                colsample_bytree=0.9,
+                n_estimators=int(params.get("n_estimators", 200)),
+                max_depth=int(params.get("max_depth", 3)),
+                learning_rate=float(params.get("learning_rate", 0.03)),
+                subsample=float(params.get("subsample", 0.7)),
+                colsample_bytree=float(params.get("colsample_bytree", 0.7)),
+                reg_alpha=float(params.get("reg_alpha", 0.5)),
+                reg_lambda=float(params.get("reg_lambda", 2.0)),
+                min_child_weight=int(params.get("min_child_weight", 10)),
+                random_state=42,
             )
         return GradientBoostingRegressor(
-            learning_rate=float(params.get("learning_rate", 0.05)),
+            learning_rate=float(params.get("learning_rate", 0.03)),
             max_depth=int(params.get("max_depth", 3)),
-            n_estimators=int(params.get("n_estimators", 180)),
+            n_estimators=int(params.get("n_estimators", 200)),
+            min_samples_leaf=int(params.get("min_samples_leaf", 10)),
+            subsample=0.7,
+            random_state=42,
         )
 
     @staticmethod

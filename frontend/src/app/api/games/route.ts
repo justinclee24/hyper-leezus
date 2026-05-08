@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { derivePicks, fetchUpcomingGames } from "@/lib/odds";
 import type { GameCard } from "@/lib/data";
 
@@ -52,31 +52,27 @@ async function fetchMLPrediction(game: GameCard): Promise<MLPrediction | null> {
   }
 }
 
-export async function GET(req: NextRequest) {
-  const date = new URL(req.url).searchParams.get("date") ?? undefined;
-  const games = await fetchUpcomingGames(date);
+export async function GET() {
+  const games = await fetchUpcomingGames();
   if (!games.length) {
     return NextResponse.json({ games: [], picks: [] });
   }
 
-  const upcoming = games.slice(0, 12);
-
   // If prediction API is configured, augment probabilities in parallel
   if (PREDICTION_API_URL && PREDICTION_API_TOKEN) {
-    const predictions = await Promise.all(upcoming.map(fetchMLPrediction));
-    for (let i = 0; i < upcoming.length; i++) {
+    const predictions = await Promise.all(games.map(fetchMLPrediction));
+    for (let i = 0; i < games.length; i++) {
       const p = predictions[i];
       if (!p) continue;
-      // Blend ML prediction (60%) with market consensus (40%) for better accuracy
-      upcoming[i] = {
-        ...upcoming[i],
+      games[i] = {
+        ...games[i],
         homeWinProbability:
-          Math.round((p.win_probability_home * 0.6 + upcoming[i].homeWinProbability * 0.4) * 1000) / 1000,
+          Math.round((p.win_probability_home * 0.6 + games[i].homeWinProbability * 0.4) * 1000) / 1000,
         confidence: Math.round(p.confidence * 100) / 100,
       };
     }
   }
 
-  const picks = derivePicks(upcoming);
-  return NextResponse.json({ games: upcoming, picks });
+  const picks = derivePicks(games);
+  return NextResponse.json({ games, picks });
 }
