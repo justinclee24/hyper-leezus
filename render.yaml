@@ -98,6 +98,8 @@ services:
         sync: false
       - key: PREDICTION_API_TOKEN
         sync: false
+      - key: NEWSAPI_KEY
+        sync: false
       - key: SPORTRADAR_API_KEY
         sync: false
       - key: SPORTRADAR_ACCESS_LEVEL

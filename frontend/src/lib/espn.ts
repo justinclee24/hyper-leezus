@@ -36,6 +36,11 @@ export interface NewsItem {
   published: string;
   url: string;
   teams: string[];
+  source?: "ESPN" | "Reddit" | "NewsAPI";
+  subreddit?: string;   // Reddit only
+  score?: number;       // Reddit upvotes
+  comments?: number;    // Reddit comment count
+  outlet?: string;      // NewsAPI source name
 }
 
 // ─── Module-level cache (30-min TTL — ESPN is free, no quota) ─────────────────

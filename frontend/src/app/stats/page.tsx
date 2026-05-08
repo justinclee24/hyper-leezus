@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Lightbulb, Newspaper, Trophy } from "lucide-react";
+import { ArrowUp, ExternalLink, Lightbulb, MessageSquare, Newspaper, Trophy } from "lucide-react";
 import type { TeamRecord, NewsItem } from "@/lib/espn";
 import { matchTeam, buildTidbits, ESPN_LEAGUES } from "@/lib/espn";
 import type { GameCard } from "@/lib/data";
@@ -178,10 +178,23 @@ function StandingsTable({ standings }: { standings: TeamRecord[] }) {
   );
 }
 
+const SOURCE_STYLE: Record<string, string> = {
+  ESPN:    "bg-orange-500/10 text-orange-400",
+  Reddit:  "bg-red-500/10 text-red-400",
+  NewsAPI: "bg-blue-500/10 text-blue-400",
+};
+
 function NewsCard({ item }: { item: NewsItem }) {
   const date = item.published
     ? new Date(item.published).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
     : "";
+  const sourceLabel = item.source === "Reddit" && item.subreddit
+    ? `r/${item.subreddit}`
+    : item.source === "NewsAPI" && item.outlet
+    ? item.outlet
+    : item.source ?? "ESPN";
+  const sourceStyle = SOURCE_STYLE[item.source ?? "ESPN"] ?? SOURCE_STYLE.ESPN;
+
   return (
     <a
       href={item.url || "#"}
@@ -199,10 +212,21 @@ function NewsCard({ item }: { item: NewsItem }) {
         {item.description && (
           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{item.description}</p>
         )}
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${sourceStyle}`}>{sourceLabel}</span>
           {item.teams.slice(0, 2).map((t) => (
             <span key={t} className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-slate-500">{t}</span>
           ))}
+          {item.source === "Reddit" && item.score !== undefined && (
+            <span className="flex items-center gap-0.5 text-[10px] text-slate-600">
+              <ArrowUp className="h-2.5 w-2.5" />{item.score.toLocaleString()}
+            </span>
+          )}
+          {item.source === "Reddit" && item.comments !== undefined && (
+            <span className="flex items-center gap-0.5 text-[10px] text-slate-600">
+              <MessageSquare className="h-2.5 w-2.5" />{item.comments.toLocaleString()}
+            </span>
+          )}
           {date && <span className="text-[10px] text-slate-700">{date}</span>}
         </div>
       </div>
