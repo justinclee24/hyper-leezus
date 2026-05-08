@@ -212,8 +212,18 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
     }
   }
 
-  // Sort by edge, return top 6
-  return picks.sort((a, b) => b.edge - a.edge).slice(0, 6);
+  // One best pick per active league first, then fill to cap with remaining
+  const sorted = picks.sort((a, b) => b.edge - a.edge);
+  const seen = new Set<string>();
+  const result: BetRecommendation[] = [];
+  for (const p of sorted) {
+    if (!seen.has(p.league)) { seen.add(p.league); result.push(p); }
+  }
+  for (const p of sorted) {
+    if (result.length >= 8) break;
+    if (!result.includes(p)) result.push(p);
+  }
+  return result.sort((a, b) => b.edge - a.edge);
 }
 
 // Returns ALL qualifying picks for a single game — no global rank cutoff.
