@@ -105,38 +105,91 @@ function parseEntry(entry: any, conf: string): TeamRecord {
   };
 }
 
+// ─── Streak computation from scoreboard (includes playoffs) ──────────────────
+
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+}
+
+async function fetchCurrentStreaks(sport: string, league: string): Promise<Record<string, string>> {
+  const end = new Date();
+  const start = new Date(end.getTime() - 14 * 24 * 60 * 60 * 1000);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `${ESPN_SITE}/${sport}/${league}/scoreboard?dates=${fmtDate(start)}-${fmtDate(end)}&limit=200`,
+  );
+  if (!data) return {};
+
+  // Build per-team ordered result history
+  const history: Record<string, Array<{ ts: number; won: boolean }>> = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const event of data.events ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const comp = (event.competitions ?? [])[0] as any;
+    if (!comp?.status?.type?.completed && comp?.status?.type?.name !== "STATUS_FINAL") continue;
+    const ts = new Date(event.date).getTime();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of comp.competitors ?? []) {
+      const id: string = c.team?.id ?? c.id;
+      if (!id) continue;
+      (history[id] ??= []).push({ ts, won: c.winner === true });
+    }
+  }
+
+  const streaks: Record<string, string> = {};
+  for (const [id, games] of Object.entries(history)) {
+    games.sort((a, b) => b.ts - a.ts);
+    if (!games.length) continue;
+    const dir = games[0].won ? "W" : "L";
+    let n = 0;
+    for (const g of games) {
+      if (g.won === (dir === "W")) n++;
+      else break;
+    }
+    streaks[id] = `${dir}${n}`;
+  }
+  return streaks;
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function fetchStandings(leagueKey: string): Promise<TeamRecord[]> {
   const cfg = ESPN_LEAGUES[leagueKey.toUpperCase()];
   if (!cfg) return [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = await espnFetch<any>(
-    `${ESPN_V2}/${cfg.sport}/${cfg.league}/standings`,
-  );
+  const [data, liveStreaks] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    espnFetch<any>(`${ESPN_V2}/${cfg.sport}/${cfg.league}/standings`),
+    fetchCurrentStreaks(cfg.sport, cfg.league),
+  ]);
   if (!data) return [];
 
   const teams: TeamRecord[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groups: any[] = data.children ?? data.groups ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const group of groups) {
     const confName: string = group.name ?? group.abbreviation ?? "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const divisions: any[] = group.children ?? [];
     if (divisions.length) {
-      // Two-level: conference → divisions → team entries
       for (const div of divisions) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const entries: any[] = div.standings?.entries ?? div.entries ?? [];
         for (const entry of entries) teams.push(parseEntry(entry, confName));
       }
     } else {
-      // One-level: conference → team entries directly
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const entries: any[] = group.standings?.entries ?? group.entries ?? [];
       for (const entry of entries) teams.push(parseEntry(entry, confName));
     }
   }
-  // Deduplicate by team id (safety net for leagues with overlapping response shapes)
+
+  // Deduplicate, then overlay live streaks from scoreboard (includes playoffs)
   const seen = new Set<string>();
-  return teams.filter((t) => { if (!t.id || seen.has(t.id)) return false; seen.add(t.id); return true; });
+  return teams
+    .filter((t) => { if (!t.id || seen.has(t.id)) return false; seen.add(t.id); return true; })
+    .map((t) => liveStreaks[t.id] ? { ...t, streak: liveStreaks[t.id] } : t);
 }
 
 export async function fetchNews(leagueKey: string): Promise<NewsItem[]> {
