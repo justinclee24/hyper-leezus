@@ -235,14 +235,44 @@ export interface PlayoffSeries {
   awayTeamAbbr?: string;
 }
 
+// Approximate start of the current playoff season per sport, so the historical scoreboard
+// fetch targets the playoff window rather than wasting the request limit on regular season games.
+// ESPN returns events oldest-first; a 120-day window fills the 500-event cap with regular season.
+function playoffSeasonStart(sport: string, league: string): Date {
+  const now = new Date();
+  const yr = now.getFullYear();
+
+  // Candidate start dates (no off-by-one needed — just needs to be before actual playoff tipoff)
+  let candidate: Date;
+  if (sport === "football" && league === "nfl") {
+    candidate = new Date(yr, 0, 8); // NFL wild card ~Jan 11
+  } else if (sport === "baseball" && league === "mlb") {
+    candidate = new Date(yr, 9, 1); // MLB wild card ~Oct 1-4
+  } else if (sport === "basketball" && league === "mens-college-basketball") {
+    candidate = new Date(yr, 2, 14); // March Madness ~Mar 18
+  } else if (sport === "soccer") {
+    candidate = new Date(yr, 9, 14); // MLS/cup playoffs ~Oct-Nov
+  } else {
+    // NBA, NHL, any other league: April 12-ish
+    candidate = new Date(yr, 3, 12);
+  }
+
+  // If the candidate is in the future, roll back one year (we're in off-season)
+  if (candidate > now) candidate = new Date(candidate.getFullYear() - 1, candidate.getMonth(), candidate.getDate());
+  return candidate;
+}
+
 export async function fetchPlayoffSeries(sport: string, league: string): Promise<PlayoffSeries[]> {
-  // Dual-fetch: historical covers completed earlier rounds; current covers active games.
-  // ESPN's no-date scoreboard only shows near-future/recent games — teams between rounds vanish.
+  // Dual-fetch strategy:
+  //   historical — uses a sport-specific start date targeting the playoff window so we don't
+  //                fill the request limit with regular season games (ESPN returns oldest-first).
+  //                limit=750 is ESPN's effective cap; larger values produce garbage.
+  //   current    — no date filter, returns today's games including in-progress ones.
   const end = new Date();
-  const start = new Date(end.getTime() - 120 * 24 * 60 * 60 * 1000);
+  const start = playoffSeasonStart(sport, league);
   const [historical, current] = await Promise.all([
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    espnFetch<any>(`${ESPN_SITE}/${sport}/${league}/scoreboard?seasontype=3&dates=${fmtDate(start)}-${fmtDate(end)}&limit=500`),
+    espnFetch<any>(`${ESPN_SITE}/${sport}/${league}/scoreboard?seasontype=3&dates=${fmtDate(start)}-${fmtDate(end)}&limit=750`),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     espnFetch<any>(`${ESPN_SITE}/${sport}/${league}/scoreboard?seasontype=3&limit=200`),
   ]);
@@ -256,16 +286,20 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
   }
   if (!eventById.size) return [];
 
-  // Track wins by TEAM ID (not home/away slot).
-  // Home-court alternates each game in a series, so incrementing "homeWins" per-game
-  // mixes wins from both teams. Using team IDs avoids this entirely.
+  // Track wins by TEAM ID (not home/away slot) using three triangulated sources:
+  //   1. competitor.winner     — boolean flag, present on recent records
+  //   2. score comparison      — homeScore > awayScore; present on nearly all records
+  //   3. competitor.series.wins — cumulative series wins ESPN provides; take maximum seen
+  // Taking the max across all sources gives us reliable win counts even for older game records
+  // where competitor.winner may be absent.
   type PairData = {
-    idA: string; idB: string;  // idA < idB (sort order — stable "home"/"away" assignment)
-    winsA: number; winsB: number;
+    idA: string; idB: string;       // idA < idB (lexicographic) — stable across all games
+    winsA: number; winsB: number;   // accumulated from per-game winner detection
+    cumWinsA: number; cumWinsB: number; // max cumulative series wins seen from ESPN field
     nameA: string; abbrA: string;
     nameB: string; abbrB: string;
     seedA: number; seedB: number;
-    espnWinner?: string;       // ESPN explicit series winner — most authoritative
+    espnWinner?: string;            // ESPN explicit series winner — most authoritative
     round: number;
     seriesUid: string;
     latestTs: number;
@@ -279,6 +313,9 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const seriesData = comp.series as any;
+    // Skip events without series data — these are regular season games, not playoffs
+    if (!seriesData) continue;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const competitors: any[] = comp.competitors ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -291,27 +328,62 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
     const awayId: string = away.team?.id ?? away.id ?? "";
     if (!homeId || !awayId) continue;
 
-    // Sort so idA < idB — gives us a stable "home/away" assignment across all games in the series
     const [idA, idB] = homeId < awayId ? [homeId, awayId] : [awayId, homeId];
     const pairKey = `${idA}|${idB}`;
     const ts = new Date(event.date ?? 0).getTime();
 
-    // Per-game winner from competitor.winner — reliable for all completed game records
-    const isCompleted: boolean =
-      comp.status?.type?.completed === true || comp.status?.type?.name === "STATUS_FINAL";
-    const gameWinnerId: string | undefined = isCompleted
-      ? home.winner === true ? homeId : away.winner === true ? awayId : undefined
-      : undefined;
-
-    // ESPN explicit series winner — only set once the series is over
-    const espnWinnerRaw = seriesData?.winner?.id ?? comp.status?.winner?.id;
-    const espnWinner = espnWinnerRaw ? String(espnWinnerRaw) : undefined;
-
-    // Stable "A" team is whichever has the sorted-lower ID
+    // Stable "A"/"B" labels based on sorted ID order — consistent across all games in series
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const teamA = homeId === idA ? home : away;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const teamB = homeId === idB ? home : away;
+
+    const isCompleted: boolean =
+      comp.status?.type?.completed === true || comp.status?.type?.name === "STATUS_FINAL";
+
+    // Per-game winner: flag first, then score comparison
+    const flagWinner: string | undefined = isCompleted
+      ? home.winner === true ? homeId : away.winner === true ? awayId : undefined
+      : undefined;
+    const homeScore = parseInt(String(home.score ?? "-1"));
+    const awayScore = parseInt(String(away.score ?? "-1"));
+    const scoreWinner: string | undefined =
+      isCompleted && homeScore >= 0 && awayScore >= 0 && homeScore !== awayScore
+        ? homeScore > awayScore ? homeId : awayId
+        : undefined;
+    const gameWinnerId = flagWinner ?? scoreWinner;
+
+    // Cumulative series wins from ESPN's series.competitors snapshot (most reliable source).
+    // ESPN returns these as numbers, e.g. {id:"5", wins:4} — updated after every game.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const seriesComps: any[] = seriesData.competitors ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scA = seriesComps.find((c: any) => String(c.id) === idA);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scB = seriesComps.find((c: any) => String(c.id) === idB);
+    const cumWinsA = Number(scA?.wins ?? 0);
+    const cumWinsB = Number(scB?.wins ?? 0);
+
+    // Series winner: ESPN sets series.completed=true when the series ends.
+    // There is no series.winner.id field — determine winner from max cumulative wins.
+    let espnWinner: string | undefined;
+    if (seriesData.completed === true && seriesComps.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const bestComp = seriesComps.reduce((best: any, c: any) =>
+        Number(c.wins) > Number(best?.wins ?? -1) ? c : best, null);
+      if (bestComp) {
+        const wId = String(bestComp.id);
+        if (wId === idA) espnWinner = idA;
+        else if (wId === idB) espnWinner = idB;
+        else {
+          // Handle UID format "s:40~t:5" → "5"
+          const m = wId.match(/~t:(\d+)$/) ?? wId.match(/^(\d+)$/);
+          const extracted = m?.[1];
+          if (extracted === idA) espnWinner = idA;
+          else if (extracted === idB) espnWinner = idB;
+        }
+      }
+    }
 
     const existing = pairs.get(pairKey);
     if (!existing) {
@@ -319,6 +391,7 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
         idA, idB,
         winsA: gameWinnerId === idA ? 1 : 0,
         winsB: gameWinnerId === idB ? 1 : 0,
+        cumWinsA, cumWinsB,
         nameA: teamA.team?.displayName ?? teamA.team?.name ?? "",
         abbrA: teamA.team?.abbreviation ?? "",
         nameB: teamB.team?.displayName ?? teamB.team?.name ?? "",
@@ -331,9 +404,11 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
         latestTs: ts,
       });
     } else {
-      // Accumulate wins keyed to the correct team ID — avoids home/away swap confusion
       if (gameWinnerId === idA) existing.winsA++;
       else if (gameWinnerId === idB) existing.winsB++;
+      // Keep highest cumulative wins ever seen — most recent game has the most up-to-date snapshot
+      if (cumWinsA > existing.cumWinsA) existing.cumWinsA = cumWinsA;
+      if (cumWinsB > existing.cumWinsB) existing.cumWinsB = cumWinsB;
       if (!existing.espnWinner && espnWinner) existing.espnWinner = espnWinner;
       if (ts > existing.latestTs) {
         existing.latestTs = ts;
@@ -351,17 +426,15 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
     }
   }
 
-  // NOTE: seriesWinner is ONLY set here from ESPN's explicit field.
-  // The futures route applies the league-specific win threshold (need=4 for NBA/NHL,
-  // need=1 for NFL, etc.) to determine completion from winsA/winsB.
-  // This avoids the bug where "homeWins+awayWins===1" fired after Game 1 of any series.
+  // seriesWinner: set when series.completed===true (winner = competitor with max wins).
+  // homeWins/awayWins = max(per-game accumulated, ESPN cumulative snapshot) for dual safety.
   return [...pairs.values()].map((p) => ({
     seriesUid: p.seriesUid,
     round: p.round,
     homeTeamId: p.idA,
     awayTeamId: p.idB,
-    homeWins: p.winsA,
-    awayWins: p.winsB,
+    homeWins: Math.max(p.winsA, p.cumWinsA),
+    awayWins: Math.max(p.winsB, p.cumWinsB),
     seriesWinner: p.espnWinner,
     homeSeed: p.seedA,
     awaySeed: p.seedB,

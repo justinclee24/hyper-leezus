@@ -169,16 +169,18 @@ export async function GET(req: NextRequest) {
 
     let winner: string | undefined;
     if (s.seriesWinner) {
-      winner = resolveId(
-        s.seriesWinner,
-        s.seriesWinner === s.homeTeamId ? s.homeTeamName : s.awayTeamName,
-        s.seriesWinner === s.homeTeamId ? s.homeTeamAbbr : s.awayTeamAbbr,
-      );
-    } else if (s.homeWins >= need) {
-      winner = homeId;
-    } else if (s.awayWins >= need) {
-      winner = awayId;
+      // Try resolving the ESPN winner ID against both home and away, pick whichever matches
+      const resolvedVsHome = resolveId(s.seriesWinner, s.homeTeamName, s.homeTeamAbbr);
+      const resolvedVsAway = resolveId(s.seriesWinner, s.awayTeamName, s.awayTeamAbbr);
+      if (resolvedVsHome === homeId) winner = homeId;
+      else if (resolvedVsAway === awayId) winner = awayId;
+      else if (resolvedVsHome === awayId) winner = awayId; // cross-match
+      else if (resolvedVsAway === homeId) winner = homeId; // cross-match
+      // If still unresolved, fall through to win count detection below
     }
+    // Win count detection: series is over when one team reaches the needed wins
+    if (!winner && s.homeWins >= need) winner = homeId;
+    if (!winner && s.awayWins >= need) winner = awayId;
 
     return { ...s, homeTeamId: homeId, awayTeamId: awayId, seriesWinner: winner };
   });
