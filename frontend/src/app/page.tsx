@@ -222,6 +222,7 @@ export default function HomePage() {
   const [selectedLeague, setSelectedLeague] = useState<string | null>(null);
   const [polymarketMap, setPolymarketMap] = useState<Map<string, PolymarketMarket>>(new Map());
   const [userPlan, setUserPlan] = useState<string | null>(null); // null = not yet loaded
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     setSelectedDate(localDateStr());
@@ -231,8 +232,16 @@ export default function HomePage() {
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.ok ? r.json() : null)
-      .then((data) => setUserPlan(data?.user?.plan ?? "free"))
-      .catch(() => setUserPlan("free"));
+      .then((data) => {
+        if (data?.user) {
+          setIsAuthenticated(true);
+          setUserPlan(data.user.plan ?? "free");
+        } else {
+          setIsAuthenticated(false);
+          setUserPlan("free");
+        }
+      })
+      .catch(() => { setIsAuthenticated(false); setUserPlan("free"); });
   }, []);
 
   useEffect(() => {
@@ -386,7 +395,7 @@ export default function HomePage() {
                     Sign up for Pro to unlock all picks, parlays, and bet tracking.
                   </p>
                   <div className="mt-3 flex justify-center gap-3">
-                    {userPlan === "free" && (
+                    {!isAuthenticated && (
                       <a href="/login" className="rounded-lg bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/15">
                         Sign in
                       </a>

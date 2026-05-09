@@ -7,21 +7,21 @@ import { PickCard } from "@/components/pick-card";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/auth";
 import { getUserPlan } from "@/lib/db";
 
-async function getIsPro(): Promise<boolean> {
+async function getAuthState(): Promise<{ isAuthenticated: boolean; isPro: boolean }> {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
-    if (!token) return false;
+    if (!token) return { isAuthenticated: false, isPro: false };
     const user = await verifySessionToken(token);
-    if (!user) return false;
+    if (!user) return { isAuthenticated: false, isPro: false };
     let dbPlan = user.plan ?? "free";
     try { dbPlan = await getUserPlan(user.id); } catch { /* use session plan */ }
     const adminEmails = (process.env.ADMIN_EMAILS ?? "")
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     const plan = adminEmails.includes(user.email.toLowerCase()) ? "admin" : dbPlan;
-    return plan === "pro" || plan === "admin";
+    return { isAuthenticated: true, isPro: plan === "pro" || plan === "admin" };
   } catch {
-    return false;
+    return { isAuthenticated: false, isPro: false };
   }
 }
 
@@ -32,7 +32,7 @@ export default async function GamePage({
 }) {
   const { gameId } = await params;
 
-  const [allGames, isPro] = await Promise.all([fetchUpcomingGames(), getIsPro()]);
+  const [allGames, { isAuthenticated, isPro }] = await Promise.all([fetchUpcomingGames(), getAuthState()]);
   const game = allGames.find((g) => g.id === gameId);
   if (!game) notFound();
 
@@ -91,9 +91,11 @@ export default async function GamePage({
                 Sign up for Pro to see model-derived edges, spreads, and totals for every game.
               </p>
               <div className="mt-3 flex gap-3">
-                <a href="/login" className="rounded-lg bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/15">
-                  Sign in
-                </a>
+                {!isAuthenticated && (
+                  <a href="/login" className="rounded-lg bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/15">
+                    Sign in
+                  </a>
+                )}
                 <a href="/upgrade" className="rounded-lg bg-orange-500 px-4 py-2 text-xs font-bold text-white hover:bg-orange-400">
                   Upgrade to Pro →
                 </a>
