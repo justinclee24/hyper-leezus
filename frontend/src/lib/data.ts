@@ -1,3 +1,12 @@
+export type TeamStats = {
+  ppg: number;         // points scored per game (offense)
+  dppg: number;        // points allowed per game (defense)
+  winPct: number;      // overall win %
+  homeWinPct: number;  // win % in home games
+  awayWinPct: number;  // win % in away games
+  streak: number;      // +N = W streak, -N = L streak
+};
+
 export type GameCard = {
   id: string;
   league: string;
@@ -11,6 +20,8 @@ export type GameCard = {
   bookmakerCount?: number;
   spreadVariance?: number;
   totalVariance?: number;
+  homeStats?: TeamStats;
+  awayStats?: TeamStats;
 };
 
 export type TrackedBet = {

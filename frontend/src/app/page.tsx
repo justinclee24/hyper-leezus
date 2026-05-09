@@ -146,10 +146,12 @@ function gameLocalDate(isoString: string) {
 
 function formatTabLabel(dateStr: string, today: string, tomorrow: string) {
   if (!dateStr) return "Today";
-  if (dateStr === today) return "Today";
-  if (dateStr === tomorrow) return "Tomorrow";
   const [y, m, day] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const date = new Date(y, m - 1, day);
+  const short = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (dateStr === today) return `Today, ${short}`;
+  if (dateStr === tomorrow) return `Tomorrow, ${short}`;
+  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 interface ModelStatsPayload {
@@ -203,6 +205,9 @@ function buildParlays(picks: BetRecommendation[]) {
     });
 }
 
+// Number of picks shown in full to unauthenticated or non-pro visitors
+const FREE_PREVIEW_COUNT = 2;
+
 export default function HomePage() {
   const [allGames, setAllGames] = useState<GameCard[]>([]);
   const [allPicks, setAllPicks] = useState<BetRecommendation[]>([]);
@@ -216,10 +221,18 @@ export default function HomePage() {
   const [dateOptions, setDateOptions] = useState<string[]>([]);
   const [selectedLeague, setSelectedLeague] = useState<string | null>(null);
   const [polymarketMap, setPolymarketMap] = useState<Map<string, PolymarketMarket>>(new Map());
+  const [userPlan, setUserPlan] = useState<string | null>(null); // null = not yet loaded
 
   useEffect(() => {
     setSelectedDate(localDateStr());
     setDateOptions(Array.from({ length: 7 }, (_, i) => offsetLocalDate(i)));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => setUserPlan(data?.user?.plan ?? "free"))
+      .catch(() => setUserPlan("free"));
   }, []);
 
   useEffect(() => {
@@ -338,16 +351,55 @@ export default function HomePage() {
           <p className="text-sm text-slate-500">
             {allPicks.length === 0 ? "No edges detected right now. Check back soon." : "No picks match your search."}
           </p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {filteredPicks.map((bet) => {
-              const teamPart = bet.betType === "Over" || bet.betType === "Under"
-                ? "" : bet.pick.split(/\s+/)[0];
-              const pmMarket = teamPart ? polymarketMap.get(`${teamPart}|${bet.league}`) : undefined;
-              return <BetCard key={bet.id} bet={bet} pmMarket={pmMarket} />;
-            })}
-          </div>
-        )}
+        ) : (() => {
+          const isPro = userPlan === "pro" || userPlan === "admin";
+          const previewOnly = !isPro;
+          const visiblePicks = previewOnly ? filteredPicks.slice(0, FREE_PREVIEW_COUNT) : filteredPicks;
+          const hiddenCount = filteredPicks.length - visiblePicks.length;
+          return (
+            <div className="relative">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {visiblePicks.map((bet) => {
+                  const teamPart = bet.betType === "Over" || bet.betType === "Under"
+                    ? "" : bet.pick.split(/\s+/)[0];
+                  const pmMarket = teamPart ? polymarketMap.get(`${teamPart}|${bet.league}`) : undefined;
+                  return <BetCard key={bet.id} bet={bet} pmMarket={pmMarket} />;
+                })}
+                {/* Blurred placeholder cards for hidden picks */}
+                {previewOnly && hiddenCount > 0 && Array.from({ length: Math.min(hiddenCount, 4) }).map((_, i) => (
+                  <div key={`blur-${i}`} className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+                    <div className="pointer-events-none select-none blur-sm p-5 opacity-40">
+                      <div className="h-3 w-16 rounded bg-white/10 mb-3" />
+                      <div className="h-6 w-32 rounded bg-white/10 mb-2" />
+                      <div className="h-2 w-24 rounded bg-white/10" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Upgrade CTA overlay when picks are hidden */}
+              {previewOnly && hiddenCount > 0 && (
+                <div className="mt-4 rounded-xl border border-orange-500/20 bg-orange-500/[0.06] p-5 text-center">
+                  <p className="text-sm font-semibold text-white">
+                    {hiddenCount} more edge{hiddenCount !== 1 ? "s" : ""} available today
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Sign up for Pro to unlock all picks, parlays, and bet tracking.
+                  </p>
+                  <div className="mt-3 flex justify-center gap-3">
+                    {userPlan === "free" && (
+                      <a href="/login" className="rounded-lg bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/15">
+                        Sign in
+                      </a>
+                    )}
+                    <a href="/upgrade" className="rounded-lg bg-orange-500 px-4 py-2 text-xs font-bold text-white hover:bg-orange-400">
+                      Upgrade to Pro →
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </section>
 
       {/* Parlay Suggestions */}

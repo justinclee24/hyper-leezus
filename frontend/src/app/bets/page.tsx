@@ -349,71 +349,74 @@ export default function AnalyticsPage() {
           <div>
             <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wider">All Picks</h2>
             <div className="space-y-2">
-              {bets.map((bet) => (
-                <div
-                  key={bet.id}
-                  className="flex items-center gap-4 rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase text-slate-500">{bet.league}</span>
-                      <span className="text-xs text-slate-600">{bet.matchup}</span>
-                      <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${RESULT_STYLES[bet.result]}`}>
-                        {bet.result.toUpperCase()}
-                      </span>
+              {bets.map((bet) => {
+                const teamPart = bet.pick.split(/\s+/)[0];
+                const pm = teamPart.length >= 4 ? pmMap.get(`${teamPart}|${bet.league}`) : undefined;
+                return (
+                  <div
+                    key={bet.id}
+                    className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3"
+                  >
+                    {/* Info row */}
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-bold uppercase text-slate-500">{bet.league}</span>
+                          <span className="text-xs text-slate-600">{bet.matchup}</span>
+                          <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${RESULT_STYLES[bet.result]}`}>
+                            {bet.result.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-baseline gap-2">
+                          <span className="font-semibold">{bet.pick}</span>
+                          <span className="text-sm text-slate-500">{bet.odds}</span>
+                          <span className="text-xs text-slate-600">Edge {Math.round(bet.edge * 100)}%</span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-600">
+                          {new Date(bet.trackedAt).toLocaleDateString()} · {bet.stake} unit{bet.stake !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+                      <button onClick={() => removeBet(bet.id)} className="shrink-0 text-slate-700 hover:text-slate-400" aria-label="Remove">×</button>
                     </div>
-                    <div className="mt-0.5 flex items-baseline gap-2">
-                      <span className="font-semibold">{bet.pick}</span>
-                      <span className="text-sm text-slate-500">{bet.odds}</span>
-                      <span className="text-xs text-slate-600">Edge {Math.round(bet.edge * 100)}%</span>
-                    </div>
-                    <div className="mt-0.5 text-xs text-slate-600">
-                      {new Date(bet.trackedAt).toLocaleDateString()} · {bet.stake} unit{bet.stake !== 1 ? "s" : ""}
+
+                    {/* Action buttons row — wraps on mobile */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {bet.result === "pending" && (
+                        <>
+                          <button onClick={() => updateResult(bet.id, "win")} className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20">Win</button>
+                          <button onClick={() => updateResult(bet.id, "loss")} className="rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/20">Loss</button>
+                          <button onClick={() => updateResult(bet.id, "push")} className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-400 hover:bg-white/10">Push</button>
+                          <span className="text-white/10">|</span>
+                        </>
+                      )}
+                      {DK_LINKS[bet.league.toUpperCase()] && (
+                        <a
+                          href={DK_LINKS[bet.league.toUpperCase()]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 rounded-md border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-xs font-semibold text-orange-400 hover:bg-orange-500/20"
+                          title={`Bet on DraftKings (${bet.league})`}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          DraftKings
+                        </a>
+                      )}
+                      {pm && (
+                        <a
+                          href={pm.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 rounded-md border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-xs font-semibold text-purple-400 hover:bg-purple-500/20"
+                          title={pm.question}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Polymarket {Math.round(pm.probability * 100)}%
+                        </a>
+                      )}
                     </div>
                   </div>
-
-                  {bet.result === "pending" && (
-                    <div className="flex shrink-0 gap-1.5">
-                      <button onClick={() => updateResult(bet.id, "win")} className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20">W</button>
-                      <button onClick={() => updateResult(bet.id, "loss")} className="rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/20">L</button>
-                      <button onClick={() => updateResult(bet.id, "push")} className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-400 hover:bg-white/10">P</button>
-                    </div>
-                  )}
-
-                  {DK_LINKS[bet.league.toUpperCase()] && (
-                    <a
-                      href={DK_LINKS[bet.league.toUpperCase()]}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex shrink-0 items-center gap-1 rounded-md border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-xs font-semibold text-orange-400 hover:bg-orange-500/20"
-                      title={`Bet on DraftKings (${bet.league})`}
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      DK
-                    </a>
-                  )}
-
-                  {(() => {
-                    const teamPart = bet.pick.split(/\s+/)[0];
-                    const pm = teamPart.length >= 4 ? pmMap.get(`${teamPart}|${bet.league}`) : undefined;
-                    if (!pm) return null;
-                    return (
-                      <a
-                        href={pm.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex shrink-0 items-center gap-1 rounded-md border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-xs font-semibold text-purple-400 hover:bg-purple-500/20"
-                        title={pm.question}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        PM {Math.round(pm.probability * 100)}%
-                      </a>
-                    );
-                  })()}
-
-                  <button onClick={() => removeBet(bet.id)} className="ml-1 shrink-0 text-slate-700 hover:text-slate-400" aria-label="Remove">×</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </>

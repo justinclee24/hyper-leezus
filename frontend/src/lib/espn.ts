@@ -262,6 +262,16 @@ function playoffSeasonStart(sport: string, league: string): Date {
   return candidate;
 }
 
+// Expected maximum duration (days) of each league's playoff run.
+// If today is beyond start + max days, the playoffs have ended and we return [] so the
+// futures page falls back to regular-season standings projections instead of stale bracket data.
+const PLAYOFF_MAX_DAYS: Record<string, number> = {
+  nfl:                         45,  // wild card ~Jan 11 → Super Bowl ~Feb 13
+  "mens-college-basketball":   30,  // First Four ~Mar 18 → championship ~Apr 7
+  mlb:                         45,  // wild card ~Oct 1 → World Series ~Nov 4
+  // NBA, NHL, soccer default: 90 days (April → late June/July)
+};
+
 export async function fetchPlayoffSeries(sport: string, league: string): Promise<PlayoffSeries[]> {
   // Dual-fetch strategy:
   //   historical — uses a sport-specific start date targeting the playoff window so we don't
@@ -270,6 +280,11 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
   //   current    — no date filter, returns today's games including in-progress ones.
   const end = new Date();
   const start = playoffSeasonStart(sport, league);
+
+  // Off-season guard: if today is past the expected end of the playoff window, return [] so the
+  // futures page shows current-season standings projections rather than last season's bracket.
+  const maxDays = PLAYOFF_MAX_DAYS[league] ?? 90;
+  if (end.getTime() > start.getTime() + maxDays * 24 * 60 * 60 * 1000) return [];
   const [historical, current] = await Promise.all([
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     espnFetch<any>(`${ESPN_SITE}/${sport}/${league}/scoreboard?seasontype=3&dates=${fmtDate(start)}-${fmtDate(end)}&limit=750`),
