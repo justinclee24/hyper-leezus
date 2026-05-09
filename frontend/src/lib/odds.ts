@@ -12,6 +12,26 @@ export const SPORTS: Record<string, string> = {
   mma_mixed_martial_arts: "MMA",
 };
 
+// Months (0=Jan) each sport has active games. Fetching off-season sports wastes API credits.
+const SPORT_ACTIVE_MONTHS: Record<string, number[]> = {
+  basketball_nba:          [0,1,2,3,4,5,9,10,11],  // Oct–Jun
+  icehockey_nhl:           [0,1,2,3,4,5,9,10,11],  // Oct–Jun
+  baseball_mlb:            [2,3,4,5,6,7,8,9],       // Mar–Oct
+  americanfootball_nfl:    [0,1,8,9,10,11],          // Sep–Feb
+  basketball_ncaab:        [0,1,2,3,10,11],          // Nov–Apr
+  soccer_usa_mls:          [1,2,3,4,5,6,7,8,9,10],  // Feb–Nov
+  soccer_epl:              [0,1,2,3,4,7,8,9,10,11], // Aug–May
+  mma_mixed_martial_arts:  [0,1,2,3,4,5,6,7,8,9,10,11], // year-round
+};
+
+/** Returns the subset of SPORTS keys that are in-season right now. */
+export function activeSeasonSports(): Record<string, string> {
+  const m = new Date().getMonth();
+  return Object.fromEntries(
+    Object.entries(SPORTS).filter(([key]) => SPORT_ACTIVE_MONTHS[key]?.includes(m) ?? true),
+  );
+}
+
 // Historical league season averages used for total line edge detection
 const LEAGUE_AVG_TOTALS: Record<string, number> = {
   NBA: 228,
@@ -237,8 +257,8 @@ export function derivePicksForGame(game: GameCard): BetRecommendation[] {
 //   L1: module-level memory  — fast, lost on restart
 //   L2: database             — persistent across restarts
 //
-// Free tier: 500 req/month ÷ 8 sports = 62 refresh cycles/month.
-// 12-hour TTL = 2 cycles/day × 8 sports × 30 days = 480 req/month — safely within budget.
+// Free tier: 500 req/month. We only fetch in-season sports (typically 4-6 of 8).
+// 12-hour TTL = 2 cycles/day × ~5 sports × 30 days ≈ 300 req/month — within budget.
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const DB_CACHE_KEY = "upcoming_games";
 
@@ -266,7 +286,7 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
   const games: GameCard[] = [];
   let remaining: string | null = null;
 
-  for (const [sportKey, league] of Object.entries(SPORTS)) {
+  for (const [sportKey, league] of Object.entries(activeSeasonSports())) {
     try {
       const url =
         `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?` +

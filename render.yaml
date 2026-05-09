@@ -133,7 +133,7 @@ services:
     runtime: docker
     dockerfilePath: ./infra/docker/data-ingestion-cron.Dockerfile
     dockerContext: .
-    schedule: "0 */2 * * *"
+    schedule: "0 8 * * *"
     envVars:
       - key: POSTGRES_DSN
         fromDatabase:

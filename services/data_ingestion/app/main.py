@@ -44,7 +44,7 @@ def get_s3():
 DATA_SOURCES = [
     DataSource("sports_stats", "https://api.sportradar.com", 60, enabled=bool(settings.sportradar_api_key)),
     DataSource("odds", "https://api.the-odds-api.com", 15, enabled=bool(settings.odds_api_key)),
-    DataSource("scores", "https://api.the-odds-api.com", 15, enabled=bool(settings.odds_api_key)),
+    DataSource("scores", "https://api.the-odds-api.com", 15, enabled=False),  # ESPN covers scores; disabled to stay within Odds API free tier (500/month)
     DataSource("injuries", "https://api.sportradar.com", 30, enabled=bool(settings.sportradar_api_key)),
     DataSource("social_sentiment", "https://oauth.reddit.com/search", 20, enabled=bool(settings.reddit_access_token)),
     DataSource("weather", "https://api.openweathermap.org/data/3.0/onecall", 60, enabled=bool(settings.weather_api_key)),
@@ -66,6 +66,28 @@ def enabled_sportradar_leagues() -> set[str]:
         for league in settings.sportradar_enabled_leagues.split(",")
         if league.strip()
     }
+
+
+# Months (0=Jan) each Odds API sport key has active games.
+# Skipping off-season sports saves API credits on the free 500/month tier.
+_ODDS_ACTIVE_MONTHS: dict[str, list[int]] = {
+    "nba":    [0,1,2,3,4,5,9,10,11],  # Oct–Jun
+    "nhl":    [0,1,2,3,4,5,9,10,11],  # Oct–Jun
+    "mlb":    [2,3,4,5,6,7,8,9],      # Mar–Oct
+    "nfl":    [0,1,8,9,10,11],         # Sep–Feb
+    "ncaab":  [0,1,2,3,10,11],         # Nov–Apr
+    "ncaaf":  [0,1,8,9,10,11],         # Aug–Jan
+    "soccer": [0,1,2,3,4,7,8,9,10,11], # Aug–May (EPL)
+    "rugby":  [0,1,2,3,4,5,6,7,8,9,10,11],
+}
+
+def _in_season(league_key: str) -> bool:
+    m = datetime.now(timezone.utc).month - 1  # 0-indexed
+    return m in _ODDS_ACTIVE_MONTHS.get(league_key, list(range(12)))
+
+# Backend ingestion only tracks core sports the ML models are trained on.
+# MLS, EPL, MMA are served by the frontend directly and don't need backend ingestion.
+_BACKEND_CORE_SPORTS = {"nba", "nfl", "nhl", "mlb", "ncaab", "ncaaf"}
 
 
 def build_source_requests(source: DataSource) -> list[dict[str, Any]]:
@@ -133,6 +155,7 @@ def build_source_requests(source: DataSource) -> list[dict[str, Any]]:
                 },
             }
             for league, sport_key in sport_keys.items()
+            if _in_season(league) and league in _BACKEND_CORE_SPORTS
         ]
     if source.name == "scores":
         sport_keys = {
@@ -156,6 +179,7 @@ def build_source_requests(source: DataSource) -> list[dict[str, Any]]:
                 },
             }
             for league, sport_key in sport_keys.items()
+            if _in_season(league)
         ]
     if source.name == "social_sentiment":
         search_terms = json.loads(settings.social_search_terms_json)
