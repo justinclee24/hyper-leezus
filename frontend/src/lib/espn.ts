@@ -229,6 +229,10 @@ export interface PlayoffSeries {
   seriesWinner?: string; // team ID once series is complete
   homeSeed: number;
   awaySeed: number;
+  homeTeamName?: string;
+  homeTeamAbbr?: string;
+  awayTeamName?: string;
+  awayTeamAbbr?: string;
 }
 
 export async function fetchPlayoffSeries(sport: string, league: string): Promise<PlayoffSeries[]> {
@@ -290,6 +294,10 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
       seriesWinner,
       homeSeed: parseInt(home.curatedRank?.current ?? "0") || 0,
       awaySeed: parseInt(away.curatedRank?.current ?? "0") || 0,
+      homeTeamName: home.team?.displayName ?? home.team?.name ?? "",
+      homeTeamAbbr: home.team?.abbreviation ?? "",
+      awayTeamName: away.team?.displayName ?? away.team?.name ?? "",
+      awayTeamAbbr: away.team?.abbreviation ?? "",
     });
   }
 

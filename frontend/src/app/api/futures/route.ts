@@ -126,29 +126,76 @@ export async function GET(req: NextRequest) {
   }
 
   const teamMap = new Map<string, TeamRecord>(standings.map((t) => [t.id, t]));
+  // Fallback lookup maps for when IDs differ between standings and scoreboard APIs
+  const teamByAbbr = new Map<string, TeamRecord>(
+    standings.map((t) => [t.abbreviation.toLowerCase(), t]),
+  );
+  const teamByName = new Map<string, TeamRecord>(
+    standings.map((t) => [t.name.toLowerCase(), t]),
+  );
 
-  // Separate completed vs active series
-  const completedSeries = allSeries.filter((s) => s.seriesWinner);
-  const activeSeries = allSeries.filter((s) => !s.seriesWinner);
+  function lookupTeam(id: string, name?: string, abbr?: string): TeamRecord | undefined {
+    if (teamMap.has(id)) return teamMap.get(id);
+    if (abbr) {
+      const byAbbr = teamByAbbr.get(abbr.toLowerCase());
+      if (byAbbr) return byAbbr;
+    }
+    if (name) {
+      const byName = teamByName.get(name.toLowerCase());
+      if (byName) return byName;
+      // Partial match: e.g. "Detroit Pistons" matches entry keyed by "pistons"
+      const nameLc = name.toLowerCase();
+      for (const [k, v] of teamByName) {
+        if (nameLc.includes(k) || k.includes(nameLc)) return v;
+      }
+    }
+    return undefined;
+  }
+
   const isPlayoffs = allSeries.length > 0;
+
+  // Resolve IDs from playoff series to canonical IDs in teamMap (handles ID mismatches)
+  function resolveId(rawId: string, name?: string, abbr?: string): string {
+    const team = lookupTeam(rawId, name, abbr);
+    return team?.id ?? rawId;
+  }
+
+  // Re-key completed/active series using canonical IDs
+  const resolvedAllSeries = allSeries.map((s) => ({
+    ...s,
+    homeTeamId: resolveId(s.homeTeamId, s.homeTeamName, s.homeTeamAbbr),
+    awayTeamId: resolveId(s.awayTeamId, s.awayTeamName, s.awayTeamAbbr),
+    seriesWinner: s.seriesWinner
+      ? resolveId(
+          s.seriesWinner,
+          s.seriesWinner === s.homeTeamId ? s.homeTeamName : s.awayTeamName,
+          s.seriesWinner === s.homeTeamId ? s.homeTeamAbbr : s.awayTeamAbbr,
+        )
+      : undefined,
+  }));
+  const resolvedCompleted = resolvedAllSeries.filter((s) => s.seriesWinner);
+  const resolvedActive = resolvedAllSeries.filter((s) => !s.seriesWinner);
 
   // Eliminated = teams that lost a completed series
   const eliminated = new Set<string>(
-    completedSeries.map((s) => (s.seriesWinner === s.homeTeamId ? s.awayTeamId : s.homeTeamId)),
+    resolvedCompleted.map((s) => (s.seriesWinner === s.homeTeamId ? s.awayTeamId : s.homeTeamId)),
   );
-  // Already-advanced = winners of completed series not yet in an active series
-  const advancedWinners = new Set<string>(completedSeries.map((s) => s.seriesWinner!));
+  // Already-advanced = winners of completed series
+  const advancedWinners = new Set<string>(resolvedCompleted.map((s) => s.seriesWinner!));
 
   // Determine bracket field
   let bracketTeams: TeamRecord[];
   if (isPlayoffs) {
-    // Use teams from all series (minus eliminated) as the playoff field
-    const allPlayoffIds = new Set([...allSeries.flatMap((s) => [s.homeTeamId, s.awayTeamId])]);
+    const allPlayoffIds = new Set(resolvedAllSeries.flatMap((s) => [s.homeTeamId, s.awayTeamId]));
     bracketTeams = [...allPlayoffIds]
       .filter((id) => !eliminated.has(id))
       .map((id) => teamMap.get(id))
       .filter(Boolean) as TeamRecord[];
-    if (!bracketTeams.length) bracketTeams = standings.slice(0, playoffSize * 2);
+    // Fallback: if ID resolution still missed teams, use sorted standings
+    if (!bracketTeams.length) {
+      const sortedStandings = [...standings].sort((a, b) => b.winPct - a.winPct);
+      bracketTeams = sortedStandings.slice(0, playoffSize * 2);
+    }
   } else {
     // Pre-playoffs: project top-N per conference
     const conferences = [...new Set(standings.map((t) => t.conference))].filter(Boolean);
@@ -157,12 +204,17 @@ export async function GET(req: NextRequest) {
       for (const conf of conferences) {
         const confTeams = standings
           .filter((t) => t.conference === conf)
-          .sort((a, b) => b.winPct - a.winPct)
+          .sort((a, b) => {
+            // Sort by win% first; fall back to raw wins if win% is 0 (e.g. early season)
+            const byPct = b.winPct - a.winPct;
+            return byPct !== 0 ? byPct : b.wins - a.wins;
+          })
           .slice(0, playoffSize);
         bracketTeams.push(...confTeams);
       }
     } else {
-      bracketTeams = standings.sort((a, b) => b.winPct - a.winPct).slice(0, playoffSize * 2);
+      const sorted = [...standings].sort((a, b) => b.winPct - a.winPct || b.wins - a.wins);
+      bracketTeams = sorted.slice(0, playoffSize * 2);
     }
   }
 
@@ -177,7 +229,7 @@ export async function GET(req: NextRequest) {
 
   for (let i = 0; i < N; i++) {
     _memo.clear(); // clear memoization between sims (probabilities vary by matchup)
-    const champId = simOneBracket(bracketTeams, activeSeries, advancedWinners, need, teamMap);
+    const champId = simOneBracket(bracketTeams, resolvedActive, advancedWinners, need, teamMap);
     if (champId in champCounts) champCounts[champId]++;
   }
 
@@ -196,7 +248,7 @@ export async function GET(req: NextRequest) {
 
   // Build results
   const activePicks: FuturesPick[] = bracketTeams.map((t) => {
-    const activeSerie = activeSeries.find((s) => s.homeTeamId === t.id || s.awayTeamId === t.id);
+    const activeSerie = resolvedActive.find((s) => s.homeTeamId === t.id || s.awayTeamId === t.id);
     let seriesRecord: string | undefined;
     let seriesLeading: boolean | undefined;
     if (activeSerie) {
@@ -249,6 +301,6 @@ export async function GET(req: NextRequest) {
     leagueKey,
     simulations: N,
     bracketSize: bracketTeams.length,
-    activeSeriesCount: activeSeries.length,
+    activeSeriesCount: resolvedActive.length,
   });
 }
