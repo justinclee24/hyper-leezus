@@ -18,8 +18,14 @@ export async function GET() {
   const user = await verifySessionToken(token);
   if (!user) return NextResponse.json({ user: null });
 
-  // Re-read plan from DB so upgrades and admin grants take effect without re-login
-  const dbPlan = await getUserPlan(user.id);
+  // Re-read plan from DB so upgrades and admin grants take effect without re-login.
+  // Fall back to the session-token plan if the DB is unavailable — ADMIN_EMAILS still applies.
+  let dbPlan = user.plan ?? "free";
+  try {
+    dbPlan = await getUserPlan(user.id);
+  } catch {
+    // non-fatal: session plan used as fallback
+  }
   const plan = resolvedPlan(user.email, dbPlan);
 
   return NextResponse.json({ user: { ...user, plan } });

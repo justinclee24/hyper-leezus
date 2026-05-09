@@ -8,16 +8,21 @@ import { verifySessionToken, COOKIE_NAME } from "@/lib/auth";
 import { getUserPlan } from "@/lib/db";
 
 async function getIsPro(): Promise<boolean> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token) return false;
-  const user = await verifySessionToken(token);
-  if (!user) return false;
-  const dbPlan = await getUserPlan(user.id);
-  const adminEmails = (process.env.ADMIN_EMAILS ?? "")
-    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const plan = adminEmails.includes(user.email.toLowerCase()) ? "admin" : dbPlan;
-  return plan === "pro" || plan === "admin";
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) return false;
+    const user = await verifySessionToken(token);
+    if (!user) return false;
+    let dbPlan = user.plan ?? "free";
+    try { dbPlan = await getUserPlan(user.id); } catch { /* use session plan */ }
+    const adminEmails = (process.env.ADMIN_EMAILS ?? "")
+      .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const plan = adminEmails.includes(user.email.toLowerCase()) ? "admin" : dbPlan;
+    return plan === "pro" || plan === "admin";
+  } catch {
+    return false;
+  }
 }
 
 export default async function GamePage({
