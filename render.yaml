@@ -1,9 +1,9 @@
 services:
   - type: web
     name: prediction-api
-    runtime: docker
-    dockerfilePath: ./infra/docker/prediction-api.Dockerfile
-    dockerContext: .
+    runtime: image
+    image:
+      url: ghcr.io/justin306/hyper-leezus/prediction-api:latest
     envVars:
       - key: POSTGRES_DSN
         fromDatabase:
@@ -28,9 +28,9 @@ services:
 
   - type: web
     name: data-ingestion
-    runtime: docker
-    dockerfilePath: ./infra/docker/data-ingestion.Dockerfile
-    dockerContext: .
+    runtime: image
+    image:
+      url: ghcr.io/justin306/hyper-leezus/data-ingestion:latest
     envVars:
       - key: POSTGRES_DSN
         fromDatabase:
@@ -57,9 +57,9 @@ services:
 
   - type: web
     name: training-service
-    runtime: docker
-    dockerfilePath: ./infra/docker/training-service.Dockerfile
-    dockerContext: .
+    runtime: image
+    image:
+      url: ghcr.io/justin306/hyper-leezus/training-service:latest
     envVars:
       - key: POSTGRES_DSN
         fromDatabase:
@@ -78,9 +78,9 @@ services:
 
   - type: web
     name: frontend
-    runtime: docker
-    dockerfilePath: ./frontend/Dockerfile
-    dockerContext: ./frontend
+    runtime: image
+    image:
+      url: ghcr.io/justin306/hyper-leezus/frontend:latest
     envVars:
       - key: NEXT_PUBLIC_API_URL
         sync: false
@@ -126,13 +126,15 @@ services:
         value: "1"
       - key: NEXT_PUBLIC_SPORTRADAR_LEAGUES
         value: "nfl"
+      - key: ADMIN_EMAILS
+        sync: false
     plan: free
 
   - type: cron
     name: ingest-cron
-    runtime: docker
-    dockerfilePath: ./infra/docker/data-ingestion-cron.Dockerfile
-    dockerContext: .
+    runtime: image
+    image:
+      url: ghcr.io/justin306/hyper-leezus/data-ingestion:latest
     schedule: "0 8 * * *"
     envVars:
       - key: POSTGRES_DSN
@@ -158,9 +160,9 @@ services:
 
   - type: cron
     name: train-cron
-    runtime: docker
-    dockerfilePath: ./infra/docker/training-service-cron.Dockerfile
-    dockerContext: .
+    runtime: image
+    image:
+      url: ghcr.io/justin306/hyper-leezus/training-service:latest
     schedule: "0 4 * * *"
     envVars:
       - key: POSTGRES_DSN

@@ -102,3 +102,24 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/hyper-leezus/frontend:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: [docker, docker-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render redeploy — frontend
+        if: secrets.RENDER_DEPLOY_HOOK_FRONTEND != ''
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_FRONTEND }}"
+
+      - name: Trigger Render redeploy — prediction-api
+        if: secrets.RENDER_DEPLOY_HOOK_PREDICTION_API != ''
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_PREDICTION_API }}"
+
+      - name: Trigger Render redeploy — data-ingestion
+        if: secrets.RENDER_DEPLOY_HOOK_DATA_INGESTION != ''
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_DATA_INGESTION }}"
+
+      - name: Trigger Render redeploy — training-service
+        if: secrets.RENDER_DEPLOY_HOOK_TRAINING_SERVICE != ''
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_TRAINING_SERVICE }}"
