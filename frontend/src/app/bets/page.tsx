@@ -2,7 +2,7 @@
 
 import { useBets } from "@/hooks/useBets";
 import type { TrackedBet } from "@/lib/data";
-import { Info } from "lucide-react";
+import { ExternalLink, Info } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -16,6 +16,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+const DK_LINKS: Record<string, string> = {
+  NBA:   "https://sportsbook.draftkings.com/leagues/basketball/nba",
+  NFL:   "https://sportsbook.draftkings.com/leagues/football/nfl",
+  NHL:   "https://sportsbook.draftkings.com/leagues/hockey/nhl",
+  MLB:   "https://sportsbook.draftkings.com/leagues/baseball/mlb",
+  NCAAB: "https://sportsbook.draftkings.com/leagues/basketball/college-basketball",
+  MLS:   "https://sportsbook.draftkings.com/leagues/soccer/mls",
+  EPL:   "https://sportsbook.draftkings.com/leagues/soccer/epl",
+};
 
 const RESULT_STYLES: Record<TrackedBet["result"], string> = {
   pending: "text-slate-400 border-slate-500/20 bg-slate-500/10",
@@ -343,6 +353,19 @@ export default function AnalyticsPage() {
                       <button onClick={() => updateResult(bet.id, "loss")} className="rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/20">L</button>
                       <button onClick={() => updateResult(bet.id, "push")} className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-400 hover:bg-white/10">P</button>
                     </div>
+                  )}
+
+                  {DK_LINKS[bet.league.toUpperCase()] && (
+                    <a
+                      href={DK_LINKS[bet.league.toUpperCase()]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex shrink-0 items-center gap-1 rounded-md border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-xs font-semibold text-orange-400 hover:bg-orange-500/20"
+                      title={`Bet on DraftKings (${bet.league})`}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Bet
+                    </a>
                   )}
 
                   <button onClick={() => removeBet(bet.id)} className="ml-1 shrink-0 text-slate-700 hover:text-slate-400" aria-label="Remove">×</button>

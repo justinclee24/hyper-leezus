@@ -13,6 +13,7 @@ interface NavUser {
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/stats", label: "Statistics" },
+  { href: "/futures", label: "Futures" },
   { href: "/bets", label: "Analytics" },
   { href: "/methodology", label: "How It Works" },
 ];

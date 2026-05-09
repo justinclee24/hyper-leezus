@@ -217,6 +217,85 @@ export async function fetchNews(leagueKey: string): Promise<NewsItem[]> {
   }));
 }
 
+// ─── Playoff bracket ─────────────────────────────────────────────────────────
+
+export interface PlayoffSeries {
+  seriesUid: string;
+  round: number;
+  homeTeamId: string;
+  awayTeamId: string;
+  homeWins: number;
+  awayWins: number;
+  seriesWinner?: string; // team ID once series is complete
+  homeSeed: number;
+  awaySeed: number;
+}
+
+export async function fetchPlayoffSeries(sport: string, league: string): Promise<PlayoffSeries[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `${ESPN_SITE}/${sport}/${league}/scoreboard?seasontype=3&limit=100`,
+  );
+  if (!data?.events?.length) return [];
+
+  const seen = new Set<string>();
+  const result: PlayoffSeries[] = [];
+
+  for (const event of data.events ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const comp = (event.competitions ?? [])[0] as any;
+    if (!comp) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const seriesData = comp.series as any;
+    const uid = seriesData?.uid ?? event.uid ?? event.id ?? String(Math.random());
+    if (seen.has(uid)) continue;
+    seen.add(uid);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const competitors: any[] = comp.competitors ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const home = competitors.find((c: any) => c.homeAway === "home");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const away = competitors.find((c: any) => c.homeAway === "away");
+    if (!home || !away) continue;
+
+    // Wins can come from competitor.series.wins or seriesData.competitors[].wins
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const seriesComps: any[] = seriesData?.competitors ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hsc = seriesComps.find((c: any) => c.id === (home.team?.id ?? home.id));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const asc = seriesComps.find((c: any) => c.id === (away.team?.id ?? away.id));
+
+    const homeWins = hsc?.wins ?? home.series?.wins ?? 0;
+    const awayWins = asc?.wins ?? away.series?.wins ?? 0;
+
+    // Determine if series is over (best-of-7: need 4 wins; best-of-5: need 3)
+    const neededDefault = 4;
+    let seriesWinner: string | undefined;
+    if (homeWins >= neededDefault) seriesWinner = home.team?.id ?? home.id;
+    else if (awayWins >= neededDefault) seriesWinner = away.team?.id ?? away.id;
+    // Also check ESPN's explicit winner field
+    const espnWinner = seriesData?.winner?.id ?? comp.status?.winner?.id;
+    if (espnWinner) seriesWinner = espnWinner;
+
+    result.push({
+      seriesUid: uid,
+      round: seriesData?.round ?? comp.playoffSeries?.round ?? 1,
+      homeTeamId: home.team?.id ?? home.id ?? "",
+      awayTeamId: away.team?.id ?? away.id ?? "",
+      homeWins,
+      awayWins,
+      seriesWinner,
+      homeSeed: parseInt(home.curatedRank?.current ?? "0") || 0,
+      awaySeed: parseInt(away.curatedRank?.current ?? "0") || 0,
+    });
+  }
+
+  return result;
+}
+
 // ─── Head-to-Head ─────────────────────────────────────────────────────────────
 
 export interface H2HMeeting {

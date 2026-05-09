@@ -5,6 +5,7 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string;
+  plan: string;
 }
 
 function getSecret(): string {
@@ -45,7 +46,7 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
     if (sig !== expectedSig) return null;
     const data = JSON.parse(atob(payload));
     if (!data.exp || data.exp < Date.now()) return null;
-    return { id: data.id, email: data.email, name: data.name };
+    return { id: data.id, email: data.email, name: data.name, plan: data.plan ?? "free" };
   } catch {
     return null;
   }

@@ -26,6 +26,9 @@ async function ensureSchema(): Promise<void> {
     )
   `);
   await pool().query(`
+    ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'
+  `);
+  await pool().query(`
     CREATE TABLE IF NOT EXISTS odds_cache (
       cache_key   TEXT        PRIMARY KEY,
       payload     JSONB       NOT NULL,
@@ -59,12 +62,13 @@ interface UserRow {
   email: string;
   name: string;
   password_hash: string;
+  plan: string;
 }
 
 export async function findUserByEmail(email: string): Promise<UserRow | null> {
   await ensureSchema();
   const { rows } = await pool().query<UserRow>(
-    "SELECT id, email, name, password_hash FROM auth_users WHERE email = $1",
+    "SELECT id, email, name, password_hash, plan FROM auth_users WHERE email = $1",
     [email],
   );
   return rows[0] ?? null;
@@ -74,13 +78,27 @@ export async function createUser(
   email: string,
   name: string,
   passwordHash: string,
-): Promise<{ id: string; email: string; name: string }> {
+): Promise<{ id: string; email: string; name: string; plan: string }> {
   await ensureSchema();
-  const { rows } = await pool().query<{ id: string; email: string; name: string }>(
-    "INSERT INTO auth_users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id, email, name",
+  const { rows } = await pool().query<{ id: string; email: string; name: string; plan: string }>(
+    "INSERT INTO auth_users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id, email, name, plan",
     [email, name, passwordHash],
   );
   return rows[0];
+}
+
+export async function getUserPlan(userId: string): Promise<string> {
+  await ensureSchema();
+  const { rows } = await pool().query<{ plan: string }>(
+    "SELECT plan FROM auth_users WHERE id = $1",
+    [userId],
+  );
+  return rows[0]?.plan ?? "free";
+}
+
+export async function updateUserPlan(userId: string, plan: string): Promise<void> {
+  await ensureSchema();
+  await pool().query("UPDATE auth_users SET plan = $1 WHERE id = $2", [plan, userId]);
 }
 
 // ─── Tracked bets ─────────────────────────────────────────────────────────────

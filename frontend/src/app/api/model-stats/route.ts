@@ -12,7 +12,7 @@ export async function GET() {
     const resp = await fetch(`${url}/model/info`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
       next: { revalidate: 3600 },
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!resp.ok) return NextResponse.json({ models: {}, leagues: [] });
     return NextResponse.json(await resp.json());

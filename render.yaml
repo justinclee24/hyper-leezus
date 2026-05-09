@@ -100,6 +100,18 @@ services:
         sync: false
       - key: NEWSAPI_KEY
         sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_ETH_PAYMENT_ADDRESS
+        sync: false
+      - key: NEXT_PUBLIC_URL
+        sync: false
       - key: SPORTRADAR_API_KEY
         sync: false
       - key: SPORTRADAR_ACCESS_LEVEL
