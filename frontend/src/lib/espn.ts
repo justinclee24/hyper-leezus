@@ -236,14 +236,30 @@ export interface PlayoffSeries {
 }
 
 export async function fetchPlayoffSeries(sport: string, league: string): Promise<PlayoffSeries[]> {
+  // Fetch with a 4-month date window so all playoff rounds are captured, not just current-round games.
+  // Without this, teams that won their round and are between rounds simply don't appear.
+  const end = new Date();
+  const start = new Date(end.getTime() - 120 * 24 * 60 * 60 * 1000);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = await espnFetch<any>(
-    `${ESPN_SITE}/${sport}/${league}/scoreboard?seasontype=3&limit=100`,
+    `${ESPN_SITE}/${sport}/${league}/scoreboard?seasontype=3&dates=${fmtDate(start)}-${fmtDate(end)}&limit=500`,
   );
   if (!data?.events?.length) return [];
 
-  const seen = new Set<string>();
-  const result: PlayoffSeries[] = [];
+  // Group all games by sorted team-pair key; keep the entry with the most games played
+  // (highest wins total = most current series state). This replaces UID-based dedup which
+  // breaks when ESPN doesn't include a series.uid on every game.
+  const seriesMap = new Map<string, {
+    homeTeamId: string; awayTeamId: string;
+    homeWins: number; awayWins: number;
+    seriesWinner?: string;
+    round: number;
+    homeSeed: number; awaySeed: number;
+    homeTeamName: string; homeTeamAbbr: string;
+    awayTeamName: string; awayTeamAbbr: string;
+    seriesUid: string;
+    total: number; // homeWins + awayWins, used only for picking the best entry
+  }>();
 
   for (const event of data.events ?? []) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -252,10 +268,6 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const seriesData = comp.series as any;
-    const uid = seriesData?.uid ?? event.uid ?? event.id ?? String(Math.random());
-    if (seen.has(uid)) continue;
-    seen.add(uid);
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const competitors: any[] = comp.competitors ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -264,44 +276,64 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
     const away = competitors.find((c: any) => c.homeAway === "away");
     if (!home || !away) continue;
 
+    const homeId: string = home.team?.id ?? home.id ?? "";
+    const awayId: string = away.team?.id ?? away.id ?? "";
+    if (!homeId || !awayId) continue;
+
     // Wins can come from competitor.series.wins or seriesData.competitors[].wins
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const seriesComps: any[] = seriesData?.competitors ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hsc = seriesComps.find((c: any) => c.id === (home.team?.id ?? home.id));
+    const hsc = seriesComps.find((c: any) => c.id === homeId);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const asc = seriesComps.find((c: any) => c.id === (away.team?.id ?? away.id));
+    const asc = seriesComps.find((c: any) => c.id === awayId);
+    const homeWins: number = hsc?.wins ?? home.series?.wins ?? 0;
+    const awayWins: number = asc?.wins ?? away.series?.wins ?? 0;
+    const total = homeWins + awayWins;
 
-    const homeWins = hsc?.wins ?? home.series?.wins ?? 0;
-    const awayWins = asc?.wins ?? away.series?.wins ?? 0;
-
-    // Determine if series is over (best-of-7: need 4 wins; best-of-5: need 3)
-    const neededDefault = 4;
+    // Winner detection: explicit ESPN field first, then win-count threshold, then single-game result
     let seriesWinner: string | undefined;
-    if (homeWins >= neededDefault) seriesWinner = home.team?.id ?? home.id;
-    else if (awayWins >= neededDefault) seriesWinner = away.team?.id ?? away.id;
-    // Also check ESPN's explicit winner field
     const espnWinner = seriesData?.winner?.id ?? comp.status?.winner?.id;
-    if (espnWinner) seriesWinner = espnWinner;
+    if (espnWinner) {
+      seriesWinner = String(espnWinner);
+    } else if (homeWins >= 4) {
+      seriesWinner = homeId;
+    } else if (awayWins >= 4) {
+      seriesWinner = awayId;
+    } else if (comp.status?.type?.completed && total <= 1) {
+      // Single-game elimination (NFL, NCAAB): game result = series result
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const homeWon = competitors.find((c: any) => c.homeAway === "home")?.winner === true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const awayWon = competitors.find((c: any) => c.homeAway === "away")?.winner === true;
+      if (homeWon) seriesWinner = homeId;
+      else if (awayWon) seriesWinner = awayId;
+    }
 
-    result.push({
-      seriesUid: uid,
-      round: seriesData?.round ?? comp.playoffSeries?.round ?? 1,
-      homeTeamId: home.team?.id ?? home.id ?? "",
-      awayTeamId: away.team?.id ?? away.id ?? "",
-      homeWins,
-      awayWins,
-      seriesWinner,
-      homeSeed: parseInt(home.curatedRank?.current ?? "0") || 0,
-      awaySeed: parseInt(away.curatedRank?.current ?? "0") || 0,
-      homeTeamName: home.team?.displayName ?? home.team?.name ?? "",
-      homeTeamAbbr: home.team?.abbreviation ?? "",
-      awayTeamName: away.team?.displayName ?? away.team?.name ?? "",
-      awayTeamAbbr: away.team?.abbreviation ?? "",
-    });
+    // Key by sorted IDs so home/away swap across rounds doesn't create duplicates
+    const pairKey = [homeId, awayId].sort().join("|");
+    const existing = seriesMap.get(pairKey);
+    if (!existing || total > existing.total) {
+      seriesMap.set(pairKey, {
+        homeTeamId: homeId,
+        awayTeamId: awayId,
+        homeWins,
+        awayWins,
+        seriesWinner,
+        round: seriesData?.round ?? comp.playoffSeries?.round ?? 1,
+        homeSeed: parseInt(home.curatedRank?.current ?? "0") || 0,
+        awaySeed: parseInt(away.curatedRank?.current ?? "0") || 0,
+        homeTeamName: home.team?.displayName ?? home.team?.name ?? "",
+        homeTeamAbbr: home.team?.abbreviation ?? "",
+        awayTeamName: away.team?.displayName ?? away.team?.name ?? "",
+        awayTeamAbbr: away.team?.abbreviation ?? "",
+        seriesUid: seriesData?.uid ?? event.uid ?? event.id ?? "",
+        total,
+      });
+    }
   }
 
-  return result;
+  return [...seriesMap.values()].map(({ total: _total, ...rest }) => rest);
 }
 
 // ─── Head-to-Head ─────────────────────────────────────────────────────────────

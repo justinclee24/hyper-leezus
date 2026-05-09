@@ -2,7 +2,9 @@
 
 import { useBets } from "@/hooks/useBets";
 import type { TrackedBet } from "@/lib/data";
+import type { PolymarketMarket } from "@/lib/polymarket";
 import { ExternalLink, Info } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -54,6 +56,25 @@ function betPnl(bet: TrackedBet): number {
 
 export default function AnalyticsPage() {
   const { bets, updateResult, removeBet, pnl, loaded } = useBets();
+  const [pmMap, setPmMap] = useState<Map<string, PolymarketMarket>>(new Map());
+
+  useEffect(() => {
+    const pending = bets.filter((b) => b.result === "pending");
+    if (!pending.length) return;
+    const unique = new Set(pending.map((b) => `${b.pick.split(/[\s-+]/)[0]}|${b.league}`));
+    Promise.all(
+      [...unique].map(async (key) => {
+        const [team, sport] = key.split("|");
+        const res = await fetch(`/api/polymarket?team=${encodeURIComponent(team)}&sport=${encodeURIComponent(sport ?? "")}`)
+          .then((r) => r.json()).catch(() => ({ markets: [] }));
+        return { key, market: (res.markets as PolymarketMarket[])[0] };
+      })
+    ).then((results) => {
+      const map = new Map<string, PolymarketMarket>();
+      for (const { key, market } of results) if (market) map.set(key, market);
+      setPmMap(map);
+    });
+  }, [bets]);
 
   if (!loaded) {
     return (
@@ -364,9 +385,27 @@ export default function AnalyticsPage() {
                       title={`Bet on DraftKings (${bet.league})`}
                     >
                       <ExternalLink className="h-3 w-3" />
-                      Bet
+                      DK
                     </a>
                   )}
+
+                  {(() => {
+                    const teamPart = bet.pick.split(/[\s-+]/)[0];
+                    const pm = pmMap.get(`${teamPart}|${bet.league}`);
+                    if (!pm) return null;
+                    return (
+                      <a
+                        href={pm.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex shrink-0 items-center gap-1 rounded-md border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-xs font-semibold text-purple-400 hover:bg-purple-500/20"
+                        title={pm.question}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        PM {Math.round(pm.probability * 100)}%
+                      </a>
+                    );
+                  })()}
 
                   <button onClick={() => removeBet(bet.id)} className="ml-1 shrink-0 text-slate-700 hover:text-slate-400" aria-label="Remove">×</button>
                 </div>
