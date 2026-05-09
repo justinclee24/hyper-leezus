@@ -59,9 +59,13 @@ export default function AnalyticsPage() {
   const [pmMap, setPmMap] = useState<Map<string, PolymarketMarket>>(new Map());
 
   useEffect(() => {
-    const pending = bets.filter((b) => b.result === "pending");
+    const pending = bets.filter((b) => b.result === "pending" && b.betType !== "Over" && b.betType !== "Under");
     if (!pending.length) return;
-    const unique = new Set(pending.map((b) => `${b.pick.split(/[\s-+]/)[0]}|${b.league}`));
+    const unique = new Set(
+      pending
+        .map((b) => { const t = b.pick.split(/\s+/)[0]; return t.length >= 4 ? `${t}|${b.league}` : ""; })
+        .filter(Boolean)
+    );
     Promise.all(
       [...unique].map(async (key) => {
         const [team, sport] = key.split("|");
@@ -390,8 +394,8 @@ export default function AnalyticsPage() {
                   )}
 
                   {(() => {
-                    const teamPart = bet.pick.split(/[\s-+]/)[0];
-                    const pm = pmMap.get(`${teamPart}|${bet.league}`);
+                    const teamPart = bet.pick.split(/\s+/)[0];
+                    const pm = teamPart.length >= 4 ? pmMap.get(`${teamPart}|${bet.league}`) : undefined;
                     if (!pm) return null;
                     return (
                       <a

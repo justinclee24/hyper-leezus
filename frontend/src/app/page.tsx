@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart3, Clock, Flame, Target, TrendingUp, Layers, ExternalLink } from "lucide-react";
+import { BarChart3, Clock, Flame, Target, TrendingUp, Layers } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -14,7 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { GameCardView } from "@/components/game-card";
-import { TrackButton } from "@/components/bet-button";
+import { BetActions } from "@/components/bet-actions";
 import { SearchBar } from "@/components/search-bar";
 import { accuracySeries, featureImportance } from "@/lib/data";
 import type { BetRecommendation, GameCard } from "@/lib/data";
@@ -79,36 +79,10 @@ function BetCard({ bet, pmMarket }: { bet: BetRecommendation; pmMarket?: Polymar
           <div className="text-sm font-semibold text-slate-200">{confPct}%</div>
         </div>
       </div>
-      <div className="mt-3 flex items-start justify-between gap-2">
-        <p className="text-[11px] leading-relaxed text-slate-600">{bet.reasoning}</p>
-        <div className="shrink-0">
-          <TrackButton bet={bet} />
-        </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">{bet.reasoning}</p>
+      <div className="mt-3 border-t border-white/[0.05] pt-2.5">
+        <BetActions bet={bet} pmMarket={pmMarket} />
       </div>
-      {pmMarket && (
-        <div className="mt-3 border-t border-white/[0.05] pt-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400">Polymarket</span>
-                <span className="text-[10px] text-slate-600">
-                  {Math.round(pmMarket.probability * 100)}% implied
-                </span>
-              </div>
-              <p className="mt-0.5 truncate text-[10px] text-slate-700">{pmMarket.question}</p>
-            </div>
-            <a
-              href={pmMarket.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex shrink-0 items-center gap-1 rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-1 text-[10px] font-semibold text-purple-400 transition-colors hover:bg-purple-500/20"
-            >
-              Bet
-              <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -283,14 +257,14 @@ export default function HomePage() {
     return () => clearTimeout(retryTimer);
   }, []);
 
-  // Fetch Polymarket markets for each unique team in picks
+  // Fetch Polymarket markets for each unique team in picks (skip Over/Under — no team name)
   useEffect(() => {
     if (!allPicks.length) return;
     const uniqueTeams = new Set<string>();
     for (const p of allPicks) {
-      // Extract team name from the pick field (e.g. "Lakers -3.5" → "Lakers")
-      const teamPart = p.pick.split(/[\s-+]/)[0];
-      if (teamPart) uniqueTeams.add(`${teamPart}|${p.league}`);
+      if (p.betType === "Over" || p.betType === "Under") continue;
+      const teamPart = p.pick.split(/\s+/)[0]; // split on whitespace only
+      if (teamPart && teamPart.length >= 4) uniqueTeams.add(`${teamPart}|${p.league}`);
     }
     const fetches = [...uniqueTeams].map(async (key) => {
       const [team, sport] = key.split("|");
@@ -367,8 +341,9 @@ export default function HomePage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {filteredPicks.map((bet) => {
-              const teamPart = bet.pick.split(/[\s-+]/)[0];
-              const pmMarket = polymarketMap.get(`${teamPart}|${bet.league}`);
+              const teamPart = bet.betType === "Over" || bet.betType === "Under"
+                ? "" : bet.pick.split(/\s+/)[0];
+              const pmMarket = teamPart ? polymarketMap.get(`${teamPart}|${bet.league}`) : undefined;
               return <BetCard key={bet.id} bet={bet} pmMarket={pmMarket} />;
             })}
           </div>

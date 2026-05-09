@@ -1,23 +1,35 @@
 "use client";
 
-import { TrackButton } from "@/components/bet-button";
+import { useEffect, useState } from "react";
+import { BetActions } from "@/components/bet-actions";
 import type { BetRecommendation } from "@/lib/data";
+import type { PolymarketMarket } from "@/lib/polymarket";
 
 export function PickCard({ bet }: { bet: BetRecommendation }) {
+  const [pmMarket, setPmMarket] = useState<PolymarketMarket | undefined>();
+
+  useEffect(() => {
+    // Only fetch PM for Moneyline/Spread — Over/Under have no team to match
+    if (bet.betType === "Over" || bet.betType === "Under") return;
+    const teamPart = bet.pick.split(/\s+/)[0];
+    if (!teamPart || teamPart.length < 4) return;
+    fetch(`/api/polymarket?team=${encodeURIComponent(teamPart)}&sport=${encodeURIComponent(bet.league)}`)
+      .then((r) => r.json())
+      .then((res) => { if (res.markets?.[0]) setPmMarket(res.markets[0]); })
+      .catch(() => {});
+  }, [bet.pick, bet.betType, bet.league]);
+
   return (
     <div className="rounded-xl border border-orange-500/25 bg-orange-500/[0.06] p-5">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wider text-orange-400">
           {bet.betType}
         </div>
-        <div className="flex items-center gap-2">
-          {bet.hot && (
-            <span className="rounded-md bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-400">
-              Hot
-            </span>
-          )}
-          <TrackButton bet={bet} />
-        </div>
+        {bet.hot && (
+          <span className="rounded-md bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-400">
+            Hot
+          </span>
+        )}
       </div>
       <div className="flex items-baseline gap-3">
         <span className="text-2xl font-bold text-white">{bet.pick}</span>
@@ -44,6 +56,9 @@ export function PickCard({ bet }: { bet: BetRecommendation }) {
         </div>
       </div>
       <p className="mt-3 text-xs leading-relaxed text-slate-500">{bet.reasoning}</p>
+      <div className="mt-3 border-t border-white/[0.05] pt-2.5">
+        <BetActions bet={bet} pmMarket={pmMarket} />
+      </div>
     </div>
   );
 }
