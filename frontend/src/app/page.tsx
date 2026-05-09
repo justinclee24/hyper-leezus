@@ -28,17 +28,17 @@ const BET_TYPE_STYLE: Record<BetRecommendation["betType"], string> = {
 };
 
 const LEAGUE_COLORS: Record<string, string> = {
-  NBA: "#3b82f6",
-  NFL: "#ef4444",
-  NHL: "#06b6d4",
-  MLB: "#22c55e",
-  MLS: "#10b981",
-  EPL: "#a855f7",
-  NCAAB: "#6366f1",
-  NCAAF: "#f97316",
-  CFB: "#f97316",
-  CFL: "#f59e0b",
-  WNBA: "#ec4899",
+  NBA: "#2563eb",   // royal blue
+  NFL: "#dc2626",   // red
+  NHL: "#0891b2",   // cyan
+  MLB: "#15803d",   // forest green
+  MLS: "#ca8a04",   // gold
+  EPL: "#7c3aed",   // violet
+  NCAAB: "#0f766e", // teal
+  NCAAF: "#ea580c", // burnt orange
+  CFB: "#ea580c",
+  CFL: "#b45309",   // dark amber
+  WNBA: "#db2777",  // deep pink
 };
 
 function leagueColor(league: string): string {
@@ -517,19 +517,23 @@ export default function HomePage() {
             >
               All
             </button>
-            {activeLeagues.map((league) => (
-              <button
-                key={league}
-                onClick={() => setSelectedLeague(league === selectedLeague ? null : league)}
-                className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                  selectedLeague === league
-                    ? "border-orange-500/40 bg-orange-500/15 text-orange-400"
-                    : "border-white/[0.06] bg-transparent text-slate-600 hover:text-slate-400"
-                }`}
-              >
-                {league}
-              </button>
-            ))}
+            {activeLeagues.map((league) => {
+              const color = leagueColor(league);
+              const isActive = selectedLeague === league;
+              return (
+                <button
+                  key={league}
+                  onClick={() => setSelectedLeague(league === selectedLeague ? null : league)}
+                  className="rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-all"
+                  style={isActive
+                    ? { borderColor: `${color}55`, backgroundColor: `${color}22`, color }
+                    : { borderColor: "rgba(255,255,255,0.06)", color: "#475569" }
+                  }
+                >
+                  {league}
+                </button>
+              );
+            })}
           </div>
         )}
 

@@ -2,17 +2,17 @@ import Link from "next/link";
 import { GameCard } from "@/lib/data";
 
 const LEAGUE_COLORS: Record<string, string> = {
-  NBA: "#3b82f6",
-  NFL: "#ef4444",
-  NHL: "#06b6d4",
-  MLB: "#22c55e",
-  MLS: "#10b981",
-  EPL: "#a855f7",
-  NCAAB: "#6366f1",
-  NCAAF: "#f97316",
-  CFB: "#f97316",
-  CFL: "#f59e0b",
-  WNBA: "#ec4899",
+  NBA: "#2563eb",   // royal blue
+  NFL: "#dc2626",   // red
+  NHL: "#0891b2",   // cyan
+  MLB: "#15803d",   // forest green
+  MLS: "#ca8a04",   // gold
+  EPL: "#7c3aed",   // violet
+  NCAAB: "#0f766e", // teal
+  NCAAF: "#ea580c", // burnt orange
+  CFB: "#ea580c",
+  CFL: "#b45309",   // dark amber
+  WNBA: "#db2777",  // deep pink
 };
 
 function leagueColor(league: string): string {
@@ -26,15 +26,17 @@ export function GameCardView({ game }: { game: GameCard }) {
     hour: "numeric",
     minute: "2-digit",
   });
+  const color = leagueColor(game.league);
   return (
     <Link
       href={`/game/${game.id}`}
-      className="group rounded-xl border border-white/[0.05] bg-white/[0.02] p-4 transition hover:border-orange-500/20 hover:bg-orange-500/[0.04]"
+      className="group rounded-xl border bg-white/[0.02] p-4 transition hover:bg-white/[0.04]"
+      style={{ borderColor: `${color}40` }}
     >
       <div className="mb-3 flex items-center justify-between">
         <span
           className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: leagueColor(game.league) }}
+          style={{ color }}
         >
           {game.league}
         </span>
