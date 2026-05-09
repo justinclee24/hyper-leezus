@@ -27,6 +27,24 @@ const BET_TYPE_STYLE: Record<BetRecommendation["betType"], string> = {
   Under: "border-red-500/20 bg-red-500/10 text-red-300",
 };
 
+const LEAGUE_COLORS: Record<string, string> = {
+  NBA: "#3b82f6",
+  NFL: "#ef4444",
+  NHL: "#06b6d4",
+  MLB: "#22c55e",
+  MLS: "#10b981",
+  EPL: "#a855f7",
+  NCAAB: "#6366f1",
+  NCAAF: "#f97316",
+  CFB: "#f97316",
+  CFL: "#f59e0b",
+  WNBA: "#ec4899",
+};
+
+function leagueColor(league: string): string {
+  return LEAGUE_COLORS[league.toUpperCase()] ?? "#64748b";
+}
+
 function BetCard({ bet, pmMarket }: { bet: BetRecommendation; pmMarket?: PolymarketMarket }) {
   const edgePct = Math.round(bet.edge * 100);
   const confPct = Math.round(bet.confidence * 100);
@@ -34,8 +52,8 @@ function BetCard({ bet, pmMarket }: { bet: BetRecommendation; pmMarket?: Polymar
     <div
       className={`relative rounded-xl border p-5 ${
         bet.hot
-          ? "border-orange-500/30 bg-orange-500/[0.06] shadow-lg shadow-orange-500/5"
-          : "border-white/[0.06] bg-white/[0.02]"
+          ? "border-orange-500/40 bg-orange-500/[0.08] shadow-lg shadow-orange-500/10"
+          : "border-orange-500/20 bg-orange-500/[0.04]"
       }`}
     >
       {bet.hot && (
@@ -45,7 +63,10 @@ function BetCard({ bet, pmMarket }: { bet: BetRecommendation; pmMarket?: Polymar
         </div>
       )}
       <div className="flex items-center gap-2">
-        <span className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+        <span
+          className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: leagueColor(bet.league) }}
+        >
           {bet.league}
         </span>
         <span

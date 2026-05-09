@@ -1,6 +1,24 @@
 import Link from "next/link";
 import { GameCard } from "@/lib/data";
 
+const LEAGUE_COLORS: Record<string, string> = {
+  NBA: "#3b82f6",
+  NFL: "#ef4444",
+  NHL: "#06b6d4",
+  MLB: "#22c55e",
+  MLS: "#10b981",
+  EPL: "#a855f7",
+  NCAAB: "#6366f1",
+  NCAAF: "#f97316",
+  CFB: "#f97316",
+  CFL: "#f59e0b",
+  WNBA: "#ec4899",
+};
+
+function leagueColor(league: string): string {
+  return LEAGUE_COLORS[league.toUpperCase()] ?? "#64748b";
+}
+
 export function GameCardView({ game }: { game: GameCard }) {
   const gameDate = new Date(game.startTime).toLocaleDateString("en-US", {
     month: "short",
@@ -14,7 +32,10 @@ export function GameCardView({ game }: { game: GameCard }) {
       className="group rounded-xl border border-white/[0.05] bg-white/[0.02] p-4 transition hover:border-orange-500/20 hover:bg-orange-500/[0.04]"
     >
       <div className="mb-3 flex items-center justify-between">
-        <span className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+        <span
+          className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: leagueColor(game.league) }}
+        >
           {game.league}
         </span>
         <span className="text-[11px] text-slate-600">{gameDate}</span>
