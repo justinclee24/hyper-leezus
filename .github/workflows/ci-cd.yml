@@ -107,19 +107,14 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: [docker, docker-frontend]
     runs-on: ubuntu-latest
+    env:
+      HOOK_FRONTEND:         ${{ secrets.RENDER_DEPLOY_HOOK_FRONTEND }}
+      HOOK_PREDICTION_API:   ${{ secrets.RENDER_DEPLOY_HOOK_PREDICTION_API }}
+      HOOK_DATA_INGESTION:   ${{ secrets.RENDER_DEPLOY_HOOK_DATA_INGESTION }}
+      HOOK_TRAINING_SERVICE: ${{ secrets.RENDER_DEPLOY_HOOK_TRAINING_SERVICE }}
     steps:
-      - name: Trigger Render redeploy — frontend
-        if: secrets.RENDER_DEPLOY_HOOK_FRONTEND != ''
-        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_FRONTEND }}"
-
-      - name: Trigger Render redeploy — prediction-api
-        if: secrets.RENDER_DEPLOY_HOOK_PREDICTION_API != ''
-        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_PREDICTION_API }}"
-
-      - name: Trigger Render redeploy — data-ingestion
-        if: secrets.RENDER_DEPLOY_HOOK_DATA_INGESTION != ''
-        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_DATA_INGESTION }}"
-
-      - name: Trigger Render redeploy — training-service
-        if: secrets.RENDER_DEPLOY_HOOK_TRAINING_SERVICE != ''
-        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_TRAINING_SERVICE }}"
+      - name: Trigger Render redeploys
+        run: |
+          for HOOK in "$HOOK_FRONTEND" "$HOOK_PREDICTION_API" "$HOOK_DATA_INGESTION" "$HOOK_TRAINING_SERVICE"; do
+            [ -n "$HOOK" ] && curl -fsSL -X POST "$HOOK"
+          done
