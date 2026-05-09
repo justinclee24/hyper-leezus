@@ -7,12 +7,14 @@ import Link from "next/link";
 const PRICE_USD = 9.99;
 
 const PRO_FEATURES = [
-  "Full bet tracking and performance history",
-  "Cumulative P&L charts and analytics",
-  "Results breakdown by league and bet type",
-  "Edge distribution analysis",
-  "Win rate and ROI tracking",
-  "Export tools (coming soon)",
+  "Unlimited AI picks — spread, moneyline & totals across every league",
+  "Multi-signal edge model: market consensus, win rates, streaks & pace scoring",
+  "One-tap to place bets on DraftKings or trade on Polymarket directly from each pick",
+  "AI-generated parlay suggestions that combine your highest-edge picks",
+  "Per-game model breakdowns with edge %, confidence score & full reasoning",
+  "Futures & championship predictions across all active leagues",
+  "Full bet tracking — log results, mark wins, losses & pushes",
+  "P&L history, ROI tracking & analytics by league and bet type",
 ];
 
 export default function UpgradePage() {
@@ -141,7 +143,7 @@ export default function UpgradePage() {
     <main className="mx-auto max-w-xl px-6 py-12">
       <div className="mb-8 text-center">
         <h1 className="text-3xl font-bold tracking-tight">Upgrade to Pro</h1>
-        <p className="mt-2 text-slate-400">Unlock full bet tracking and advanced analytics.</p>
+        <p className="mt-2 text-slate-400">Every pick, every edge, every tool — fully unlocked.</p>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-orange-500/20 bg-gradient-to-b from-orange-500/[0.05] to-transparent">

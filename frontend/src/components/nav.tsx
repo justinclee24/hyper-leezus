@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { TrendingUp, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface NavUser {
@@ -45,7 +45,11 @@ export function Nav() {
     <header className="sticky top-0 z-50 border-b border-white/[0.05] bg-[#030810]/90 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-orange-500" />
+          <svg width="18" height="20" viewBox="0 0 18 20" fill="none" className="shrink-0">
+            <path d="M9 0.5L16.5 4.75V13.25L9 17.5L1.5 13.25V4.75L9 0.5Z"
+              fill="rgba(249,115,22,0.12)" stroke="#f97316" strokeWidth="1.25" strokeLinejoin="round" />
+            <path d="M10.5 3.5L7 10H10L7 16.5L13 9H10L10.5 3.5Z" fill="#f97316" />
+          </svg>
           <span className="text-base font-black tracking-tighter">
             HYPER<span className="text-orange-500">LEEZUS</span>
           </span>
