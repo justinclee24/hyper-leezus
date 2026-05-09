@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateUserPlan } from "@/lib/db";
+import { sendProConfirmationEmail, notifyAdminProUpgrade } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -24,9 +25,19 @@ export async function POST(req: NextRequest) {
   }
 
   if (event.type === "checkout.session.completed") {
-    const session = event.data.object as { metadata?: { userId?: string } };
+    const session = event.data.object as { metadata?: { userId?: string }; customer_email?: string | null };
     const userId = session.metadata?.userId;
-    if (userId) await updateUserPlan(userId, "pro");
+    if (userId) {
+      await updateUserPlan(userId, "pro");
+      const userEmail = session.customer_email ?? "";
+      if (userEmail) {
+        const { findUserByEmail } = await import("@/lib/db");
+        const u = await findUserByEmail(userEmail).catch(() => null);
+        const name = u?.name ?? userEmail;
+        void sendProConfirmationEmail(userEmail, name);
+        void notifyAdminProUpgrade(userEmail, name, "stripe");
+      }
+    }
   }
 
   if (event.type === "customer.subscription.deleted") {

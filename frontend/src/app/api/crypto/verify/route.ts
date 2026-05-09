@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/auth";
 import { updateUserPlan } from "@/lib/db";
+import { sendProConfirmationEmail, notifyAdminProUpgrade } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
     }
 
     await updateUserPlan(user.id, "pro");
+    void sendProConfirmationEmail(user.email, user.name);
+    void notifyAdminProUpgrade(user.email, user.name, "crypto");
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "Failed to verify transaction" }, { status: 500 });

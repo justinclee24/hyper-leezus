@@ -370,6 +370,14 @@ const DB_CACHE_KEY = "upcoming_games";
 let _cachedGames: GameCard[] | null = null;
 let _cacheExpiry = 0;
 
+// Strip games that have already kicked off. The Odds API removes them from live
+// responses but our 12-hour cache would otherwise serve them all day.
+// 20-minute grace period keeps in-progress games visible briefly.
+function filterStarted(games: GameCard[]): GameCard[] {
+  const cutoff = Date.now() - 20 * 60 * 1000;
+  return games.filter((g) => new Date(g.startTime).getTime() > cutoff);
+}
+
 export async function fetchUpcomingGames(): Promise<GameCard[]> {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) return [];
@@ -377,7 +385,7 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
   const now = Date.now();
 
   // L1: in-process memory cache
-  if (_cachedGames && now < _cacheExpiry) return _cachedGames;
+  if (_cachedGames && now < _cacheExpiry) return filterStarted(_cachedGames);
 
   // L2: database cache (survives cold starts)
   const dbCache = await getOddsCache(DB_CACHE_KEY);
@@ -385,7 +393,7 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
     const games = dbCache.payload as GameCard[];
     _cachedGames = games;
     _cacheExpiry = dbCache.fetchedAt.getTime() + CACHE_TTL_MS;
-    return games;
+    return filterStarted(games);
   }
 
   const games: GameCard[] = [];
@@ -446,11 +454,11 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
   }
 
   if (sorted.length > 0) {
-    // Write both cache layers
+    // Write both cache layers (store everything; filterStarted runs on reads)
     _cachedGames = sorted;
     _cacheExpiry = now + CACHE_TTL_MS;
     await setOddsCache(DB_CACHE_KEY, sorted);
   }
 
-  return sorted;
+  return filterStarted(sorted);
 }

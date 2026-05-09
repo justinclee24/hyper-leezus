@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { createSessionToken, COOKIE_NAME, MAX_AGE } from "@/lib/auth";
 import { createUser, findUserByEmail } from "@/lib/db";
+import { sendWelcomeEmail, notifyAdminNewSignup } from "@/lib/email";
 
 export async function POST(req: Request) {
   const { email, name, password } = await req.json();
@@ -20,6 +21,9 @@ export async function POST(req: Request) {
 
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await createUser(email.toLowerCase(), name, passwordHash);
+
+  void sendWelcomeEmail(user.email, user.name);
+  void notifyAdminNewSignup(user.email, user.name);
 
   const token = await createSessionToken({ id: user.id, email: user.email, name: user.name, plan: user.plan ?? "free" });
   const resp = NextResponse.json({ user }, { status: 201 });

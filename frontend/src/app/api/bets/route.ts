@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { getTrackedBets, addTrackedBet } from "@/lib/db";
 import type { TrackedBet } from "@/lib/data";
+import { notifyAdminBetTracked } from "@/lib/email";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -31,5 +32,6 @@ export async function POST(req: Request) {
   };
 
   await addTrackedBet(user.id, bet);
+  void notifyAdminBetTracked(user.email, user.name, bet.pick, bet.betType, bet.odds, bet.matchup, bet.league);
   return NextResponse.json({ bet }, { status: 201 });
 }
