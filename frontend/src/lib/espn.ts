@@ -236,8 +236,8 @@ export interface PlayoffSeries {
 }
 
 export async function fetchPlayoffSeries(sport: string, league: string): Promise<PlayoffSeries[]> {
-  // Dual-fetch: date-range covers completed historical rounds; no-date covers current active games.
-  // ESPN's no-date scoreboard only returns near-future/recent games — teams between rounds disappear.
+  // Dual-fetch: historical covers completed earlier rounds; current covers active games.
+  // ESPN's no-date scoreboard only shows near-future/recent games — teams between rounds vanish.
   const end = new Date();
   const start = new Date(end.getTime() - 120 * 24 * 60 * 60 * 1000);
   const [historical, current] = await Promise.all([
@@ -256,19 +256,17 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
   }
   if (!eventById.size) return [];
 
-  // Per-pair data:
-  //   gameWins:   count of individual completed games won by each side (most reliable — always present)
-  //   seriesWins: ESPN's cumulative series wins from the best game record found (may be absent in old records)
-  //   espnWinner: explicit series winner field from ESPN
-  //   meta:       latest game metadata (round, seeds, team names)
+  // Track wins by TEAM ID (not home/away slot).
+  // Home-court alternates each game in a series, so incrementing "homeWins" per-game
+  // mixes wins from both teams. Using team IDs avoids this entirely.
   type PairData = {
-    homeId: string; awayId: string;
-    homeGameWins: number; awayGameWins: number;
-    bestHomeSeriesWins: number; bestAwaySeriesWins: number;
-    espnWinner?: string;
-    round: number; homeSeed: number; awaySeed: number;
-    homeTeamName: string; homeTeamAbbr: string;
-    awayTeamName: string; awayTeamAbbr: string;
+    idA: string; idB: string;  // idA < idB (sort order — stable "home"/"away" assignment)
+    winsA: number; winsB: number;
+    nameA: string; abbrA: string;
+    nameB: string; abbrB: string;
+    seedA: number; seedB: number;
+    espnWinner?: string;       // ESPN explicit series winner — most authoritative
+    round: number;
     seriesUid: string;
     latestTs: number;
   };
@@ -293,113 +291,85 @@ export async function fetchPlayoffSeries(sport: string, league: string): Promise
     const awayId: string = away.team?.id ?? away.id ?? "";
     if (!homeId || !awayId) continue;
 
-    const pairKey = [homeId, awayId].sort().join("|");
+    // Sort so idA < idB — gives us a stable "home/away" assignment across all games in the series
+    const [idA, idB] = homeId < awayId ? [homeId, awayId] : [awayId, homeId];
+    const pairKey = `${idA}|${idB}`;
     const ts = new Date(event.date ?? 0).getTime();
 
-    // Individual game winner (competitor.winner is reliable for all completed game records)
-    const isCompleted: boolean = comp.status?.type?.completed === true
-      || comp.status?.type?.name === "STATUS_FINAL";
-    const homeWonGame: boolean = isCompleted && home.winner === true;
-    const awayWonGame: boolean = isCompleted && away.winner === true;
+    // Per-game winner from competitor.winner — reliable for all completed game records
+    const isCompleted: boolean =
+      comp.status?.type?.completed === true || comp.status?.type?.name === "STATUS_FINAL";
+    const gameWinnerId: string | undefined = isCompleted
+      ? home.winner === true ? homeId : away.winner === true ? awayId : undefined
+      : undefined;
 
-    // ESPN cumulative series wins (may be 0 if not present in historical records)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const seriesComps: any[] = seriesData?.competitors ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hsc = seriesComps.find((c: any) => c.id === homeId);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const asc = seriesComps.find((c: any) => c.id === awayId);
-    const espnHomeWins: number = Number(hsc?.wins ?? home.series?.wins ?? 0);
-    const espnAwayWins: number = Number(asc?.wins ?? away.series?.wins ?? 0);
-
-    // ESPN explicit series winner (most authoritative when present)
+    // ESPN explicit series winner — only set once the series is over
     const espnWinnerRaw = seriesData?.winner?.id ?? comp.status?.winner?.id;
     const espnWinner = espnWinnerRaw ? String(espnWinnerRaw) : undefined;
+
+    // Stable "A" team is whichever has the sorted-lower ID
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const teamA = homeId === idA ? home : away;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const teamB = homeId === idB ? home : away;
 
     const existing = pairs.get(pairKey);
     if (!existing) {
       pairs.set(pairKey, {
-        homeId, awayId,
-        homeGameWins: homeWonGame ? 1 : 0,
-        awayGameWins: awayWonGame ? 1 : 0,
-        bestHomeSeriesWins: espnHomeWins,
-        bestAwaySeriesWins: espnAwayWins,
+        idA, idB,
+        winsA: gameWinnerId === idA ? 1 : 0,
+        winsB: gameWinnerId === idB ? 1 : 0,
+        nameA: teamA.team?.displayName ?? teamA.team?.name ?? "",
+        abbrA: teamA.team?.abbreviation ?? "",
+        nameB: teamB.team?.displayName ?? teamB.team?.name ?? "",
+        abbrB: teamB.team?.abbreviation ?? "",
+        seedA: parseInt(teamA.curatedRank?.current ?? "0") || 0,
+        seedB: parseInt(teamB.curatedRank?.current ?? "0") || 0,
         espnWinner,
         round: seriesData?.round ?? comp.playoffSeries?.round ?? 1,
-        homeSeed: parseInt(home.curatedRank?.current ?? "0") || 0,
-        awaySeed: parseInt(away.curatedRank?.current ?? "0") || 0,
-        homeTeamName: home.team?.displayName ?? home.team?.name ?? "",
-        homeTeamAbbr: home.team?.abbreviation ?? "",
-        awayTeamName: away.team?.displayName ?? away.team?.name ?? "",
-        awayTeamAbbr: away.team?.abbreviation ?? "",
         seriesUid: seriesData?.uid ?? event.uid ?? event.id ?? "",
         latestTs: ts,
       });
     } else {
-      // Accumulate per-game wins
-      if (homeWonGame) existing.homeGameWins++;
-      if (awayWonGame) existing.awayGameWins++;
-      // Keep best ESPN series wins seen (highest total = most current snapshot)
-      if (espnHomeWins + espnAwayWins > existing.bestHomeSeriesWins + existing.bestAwaySeriesWins) {
-        existing.bestHomeSeriesWins = espnHomeWins;
-        existing.bestAwaySeriesWins = espnAwayWins;
-      }
+      // Accumulate wins keyed to the correct team ID — avoids home/away swap confusion
+      if (gameWinnerId === idA) existing.winsA++;
+      else if (gameWinnerId === idB) existing.winsB++;
       if (!existing.espnWinner && espnWinner) existing.espnWinner = espnWinner;
       if (ts > existing.latestTs) {
         existing.latestTs = ts;
         existing.round = seriesData?.round ?? comp.playoffSeries?.round ?? existing.round;
-        existing.homeSeed = parseInt(home.curatedRank?.current ?? "0") || existing.homeSeed;
-        existing.awaySeed = parseInt(away.curatedRank?.current ?? "0") || existing.awaySeed;
         existing.seriesUid = seriesData?.uid ?? event.uid ?? event.id ?? existing.seriesUid;
-        // Update team names from most recent game (most likely to be correct)
-        if (home.team?.displayName) existing.homeTeamName = home.team.displayName;
-        if (home.team?.abbreviation) existing.homeTeamAbbr = home.team.abbreviation;
-        if (away.team?.displayName) existing.awayTeamName = away.team.displayName;
-        if (away.team?.abbreviation) existing.awayTeamAbbr = away.team.abbreviation;
+        if (parseInt(teamA.curatedRank?.current ?? "0") > 0)
+          existing.seedA = parseInt(teamA.curatedRank!.current);
+        if (parseInt(teamB.curatedRank?.current ?? "0") > 0)
+          existing.seedB = parseInt(teamB.curatedRank!.current);
+        if (teamA.team?.displayName) existing.nameA = teamA.team.displayName;
+        if (teamA.team?.abbreviation) existing.abbrA = teamA.team.abbreviation;
+        if (teamB.team?.displayName) existing.nameB = teamB.team.displayName;
+        if (teamB.team?.abbreviation) existing.abbrB = teamB.team.abbreviation;
       }
     }
   }
 
-  const result: PlayoffSeries[] = [];
-  for (const p of pairs.values()) {
-    // Prefer per-game win counts (from competitor.winner) as they're most reliable.
-    // Fall back to ESPN's cumulative series wins if per-game counts are all zero.
-    const homeWins = p.homeGameWins > 0 || p.awayGameWins > 0
-      ? p.homeGameWins
-      : p.bestHomeSeriesWins;
-    const awayWins = p.homeGameWins > 0 || p.awayGameWins > 0
-      ? p.awayGameWins
-      : p.bestAwaySeriesWins;
-
-    // Series winner: ESPN explicit → win-count threshold → single-game result
-    let seriesWinner = p.espnWinner;
-    if (!seriesWinner) {
-      if (homeWins >= 4) seriesWinner = p.homeId;
-      else if (awayWins >= 4) seriesWinner = p.awayId;
-      else if (homeWins + awayWins === 1 && (homeWins === 1 || awayWins === 1)) {
-        // Single-game elimination: one game played, one winner
-        seriesWinner = homeWins === 1 ? p.homeId : p.awayId;
-      }
-    }
-
-    result.push({
-      seriesUid: p.seriesUid,
-      round: p.round,
-      homeTeamId: p.homeId,
-      awayTeamId: p.awayId,
-      homeWins,
-      awayWins,
-      seriesWinner,
-      homeSeed: p.homeSeed,
-      awaySeed: p.awaySeed,
-      homeTeamName: p.homeTeamName,
-      homeTeamAbbr: p.homeTeamAbbr,
-      awayTeamName: p.awayTeamName,
-      awayTeamAbbr: p.awayTeamAbbr,
-    });
-  }
-
-  return result;
+  // NOTE: seriesWinner is ONLY set here from ESPN's explicit field.
+  // The futures route applies the league-specific win threshold (need=4 for NBA/NHL,
+  // need=1 for NFL, etc.) to determine completion from winsA/winsB.
+  // This avoids the bug where "homeWins+awayWins===1" fired after Game 1 of any series.
+  return [...pairs.values()].map((p) => ({
+    seriesUid: p.seriesUid,
+    round: p.round,
+    homeTeamId: p.idA,
+    awayTeamId: p.idB,
+    homeWins: p.winsA,
+    awayWins: p.winsB,
+    seriesWinner: p.espnWinner,
+    homeSeed: p.seedA,
+    awaySeed: p.seedB,
+    homeTeamName: p.nameA,
+    homeTeamAbbr: p.abbrA,
+    awayTeamName: p.nameB,
+    awayTeamAbbr: p.abbrB,
+  }));
 }
 
 // ─── Head-to-Head ─────────────────────────────────────────────────────────────

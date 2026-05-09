@@ -160,19 +160,28 @@ export async function GET(req: NextRequest) {
     return team?.id ?? rawId;
   }
 
-  // Re-key completed/active series using canonical IDs
-  const resolvedAllSeries = allSeries.map((s) => ({
-    ...s,
-    homeTeamId: resolveId(s.homeTeamId, s.homeTeamName, s.homeTeamAbbr),
-    awayTeamId: resolveId(s.awayTeamId, s.awayTeamName, s.awayTeamAbbr),
-    seriesWinner: s.seriesWinner
-      ? resolveId(
-          s.seriesWinner,
-          s.seriesWinner === s.homeTeamId ? s.homeTeamName : s.awayTeamName,
-          s.seriesWinner === s.homeTeamId ? s.homeTeamAbbr : s.awayTeamAbbr,
-        )
-      : undefined,
-  }));
+  // Re-key series to canonical standings IDs, then determine series completion
+  // using the league-specific win threshold (need). fetchPlayoffSeries only sets
+  // seriesWinner from ESPN's explicit field; we detect completion from win counts here.
+  const resolvedAllSeries = allSeries.map((s) => {
+    const homeId = resolveId(s.homeTeamId, s.homeTeamName, s.homeTeamAbbr);
+    const awayId = resolveId(s.awayTeamId, s.awayTeamName, s.awayTeamAbbr);
+
+    let winner: string | undefined;
+    if (s.seriesWinner) {
+      winner = resolveId(
+        s.seriesWinner,
+        s.seriesWinner === s.homeTeamId ? s.homeTeamName : s.awayTeamName,
+        s.seriesWinner === s.homeTeamId ? s.homeTeamAbbr : s.awayTeamAbbr,
+      );
+    } else if (s.homeWins >= need) {
+      winner = homeId;
+    } else if (s.awayWins >= need) {
+      winner = awayId;
+    }
+
+    return { ...s, homeTeamId: homeId, awayTeamId: awayId, seriesWinner: winner };
+  });
   const resolvedCompleted = resolvedAllSeries.filter((s) => s.seriesWinner);
   const resolvedActive = resolvedAllSeries.filter((s) => !s.seriesWinner);
 
