@@ -9,6 +9,7 @@ const PRICE_USD = 9.99;
 const PRO_FEATURES = [
   "Unlimited AI picks — spread, moneyline & totals across every league",
   "Multi-signal edge model: market consensus, win rates, streaks & pace scoring",
+  "Live multi-source news feed — Reddit sentiment, sports outlets & injury reports",
   "One-tap to place bets on DraftKings or trade on Polymarket directly from each pick",
   "AI-generated parlay suggestions that combine your highest-edge picks",
   "Per-game model breakdowns with edge %, confidence score & full reasoning",

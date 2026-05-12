@@ -241,6 +241,7 @@ export default function HomePage() {
   const [selectedDate, setSelectedDate] = useState("");
   const [dateOptions, setDateOptions] = useState<string[]>([]);
   const [selectedLeague, setSelectedLeague] = useState<string | null>(null);
+  const [excludeMode, setExcludeMode] = useState(false);
   const [polymarketMap, setPolymarketMap] = useState<Map<string, PolymarketMarket>>(new Map());
   const [userPlan, setUserPlan] = useState<string | null>(null); // null = not yet loaded
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -324,17 +325,21 @@ export default function HomePage() {
     });
   }, [allPicks]);
 
-  const today = selectedDate;
+  const today = dateOptions[0] ?? localDateStr();
   const tomorrow = dateOptions[1] ?? "";
 
   const games = allGames.filter((g) => {
-    if (!selectedDate) return true;
-    return gameLocalDate(g.startTime) === selectedDate && (!selectedLeague || g.league === selectedLeague);
+    const dateMatch = !selectedDate || gameLocalDate(g.startTime) === selectedDate;
+    const leagueMatch = !selectedLeague || (excludeMode ? g.league !== selectedLeague : g.league === selectedLeague);
+    return dateMatch && leagueMatch;
   });
 
-  const picks = allPicks.filter((p) =>
-    !selectedLeague || p.league === selectedLeague.split(" ")[0],
-  );
+  const picks = allPicks.filter((p) => {
+    const game = allGames.find((g) => g.id === p.gameId);
+    const dateMatch = !selectedDate || (game ? gameLocalDate(game.startTime) === selectedDate : true);
+    const leagueMatch = !selectedLeague || (excludeMode ? p.league !== selectedLeague : p.league === selectedLeague);
+    return dateMatch && leagueMatch;
+  });
 
   const filteredGames = games.filter((g) =>
     matchesQuery(query, g.homeTeam, g.awayTeam, g.league),
@@ -384,7 +389,14 @@ export default function HomePage() {
         ) : (() => {
           const isPro = userPlan === "pro" || userPlan === "admin";
           const previewOnly = !isPro;
-          const visiblePicks = previewOnly ? filteredPicks.slice(0, FREE_PREVIEW_COUNT) : filteredPicks;
+          // Free preview: show the two most enticing picks (hot first, then by edge)
+          const sortedForPreview = previewOnly
+            ? [...filteredPicks].sort((a, b) => {
+                if (a.hot !== b.hot) return a.hot ? -1 : 1;
+                return b.edge - a.edge;
+              })
+            : filteredPicks;
+          const visiblePicks = previewOnly ? sortedForPreview.slice(0, FREE_PREVIEW_COUNT) : filteredPicks;
           const hiddenCount = filteredPicks.length - visiblePicks.length;
           return (
             <div className="relative">
@@ -508,14 +520,14 @@ export default function HomePage() {
         {!loading && activeLeagues.length > 1 && (
           <div className="mb-4 flex flex-wrap gap-1.5">
             <button
-              onClick={() => setSelectedLeague(null)}
+              onClick={() => { setSelectedLeague(null); setExcludeMode(false); }}
               className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                 selectedLeague === null
                   ? "border-slate-500/40 bg-slate-500/15 text-slate-200"
                   : "border-white/[0.06] bg-transparent text-slate-600 hover:text-slate-400"
               }`}
             >
-              All
+              {selectedLeague && excludeMode ? `All − ${selectedLeague}` : "All"}
             </button>
             {activeLeagues.map((league) => {
               const color = leagueColor(league);
@@ -523,14 +535,28 @@ export default function HomePage() {
               return (
                 <button
                   key={league}
-                  onClick={() => setSelectedLeague(league === selectedLeague ? null : league)}
+                  onClick={() => {
+                    if (selectedLeague === league) {
+                      if (!excludeMode) {
+                        setExcludeMode(true);
+                      } else {
+                        setSelectedLeague(null);
+                        setExcludeMode(false);
+                      }
+                    } else {
+                      setSelectedLeague(league);
+                      setExcludeMode(false);
+                    }
+                  }}
                   className="rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-all"
                   style={isActive
-                    ? { borderColor: `${color}55`, backgroundColor: `${color}22`, color }
+                    ? excludeMode
+                      ? { borderColor: "rgba(239,68,68,0.4)", backgroundColor: "rgba(239,68,68,0.08)", color: "#f87171" }
+                      : { borderColor: `${color}55`, backgroundColor: `${color}22`, color }
                     : { borderColor: "rgba(255,255,255,0.06)", color: "#475569" }
                   }
                 >
-                  {league}
+                  {isActive && excludeMode ? `× ${league}` : league}
                 </button>
               );
             })}

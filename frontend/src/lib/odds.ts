@@ -364,7 +364,7 @@ export function derivePicksForGame(game: GameCard): BetRecommendation[] {
 //
 // Free tier: 500 req/month. We only fetch in-season sports (typically 4-6 of 8).
 // 12-hour TTL = 2 cycles/day × ~5 sports × 30 days ≈ 300 req/month — within budget.
-const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const CACHE_TTL_MS = 18 * 60 * 60 * 1000; // 18 hours — ~1 refresh/day per sport ≈ 150 req/month
 const DB_CACHE_KEY = "upcoming_games";
 
 let _cachedGames: GameCard[] | null = null;
@@ -399,35 +399,39 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
   const games: GameCard[] = [];
   let remaining: string | null = null;
 
-  for (const [sportKey, league] of Object.entries(activeSeasonSports())) {
-    try {
-      const url =
-        `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?` +
-        new URLSearchParams({
-          apiKey,
-          regions: "us",
-          markets: "h2h,spreads,totals",
-          dateFormat: "iso",
-          oddsFormat: "american",
-        });
-
-      const resp = await fetch(url, { cache: "no-store" });
-      if (!resp.ok) {
-        console.error(`[odds] ${league} fetch failed: HTTP ${resp.status} ${resp.statusText}`);
-        continue;
+  // Fetch all sports in parallel — cuts cold-cache load time from ~5s to ~1s
+  const sportResults = await Promise.all(
+    Object.entries(activeSeasonSports()).map(async ([sportKey, league]) => {
+      try {
+        const url =
+          `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?` +
+          new URLSearchParams({
+            apiKey,
+            regions: "us",
+            markets: "h2h,spreads,totals",
+            dateFormat: "iso",
+            oddsFormat: "american",
+          });
+        const resp = await fetch(url, { cache: "no-store" });
+        if (!resp.ok) {
+          console.error(`[odds] ${league} fetch failed: HTTP ${resp.status} ${resp.statusText}`);
+          return { cards: [] as GameCard[], remaining: null as string | null };
+        }
+        const rem = resp.headers.get("x-requests-remaining");
+        const events: OddsEvent[] = await resp.json();
+        return {
+          cards: events.map((e) => transformEvent(e, league)).filter(Boolean) as GameCard[],
+          remaining: rem,
+        };
+      } catch {
+        return { cards: [] as GameCard[], remaining: null as string | null };
       }
+    }),
+  );
 
-      // Track quota — logged once per refresh cycle
-      remaining = resp.headers.get("x-requests-remaining") ?? remaining;
-
-      const events: OddsEvent[] = await resp.json();
-      for (const event of events) {
-        const game = transformEvent(event, league);
-        if (game) games.push(game);
-      }
-    } catch {
-      continue;
-    }
+  for (const { cards, remaining: r } of sportResults) {
+    games.push(...cards);
+    if (r !== null) remaining = r;
   }
 
   if (remaining !== null) {

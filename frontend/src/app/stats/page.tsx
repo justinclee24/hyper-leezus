@@ -306,28 +306,30 @@ function NewsCard({ item }: { item: NewsItem }) {
 export default function StatsPage() {
   const [league, setLeague] = useState<League>("NBA");
   const [stats, setStats] = useState<StatsPayload | null>(null);
-  const [games, setGames] = useState<GameCard[]>([]);
+  const [allFetchedGames, setAllFetchedGames] = useState<GameCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"preview" | "standings" | "news">("preview");
 
+  // Fetch games once — same cache as dashboard, no re-fetch on league switch
+  useEffect(() => {
+    fetch("/api/games")
+      .then((r) => r.json())
+      .then((d) => setAllFetchedGames(d.games ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Fetch standings + news per league
   useEffect(() => {
     setLoading(true);
     setStats(null);
-    Promise.all([
-      fetch(`/api/stats?league=${league}`).then((r) => r.json()),
-      fetch("/api/games").then((r) => r.json()),
-    ])
-      .then(([statsData, gamesData]) => {
-        setStats(statsData);
-        setGames(
-          (gamesData.games ?? []).filter((g: GameCard) =>
-            g.league.toUpperCase().startsWith(league),
-          ),
-        );
-      })
+    fetch(`/api/stats?league=${league}`)
+      .then((r) => r.json())
+      .then((data) => setStats(data))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [league]);
+
+  const games = allFetchedGames.filter((g) => g.league.toUpperCase().startsWith(league));
 
   const previewGames = games.filter(
     (g) => stats?.standings.length && (matchTeam(g.homeTeam, stats.standings) || matchTeam(g.awayTeam, stats.standings)),
@@ -343,8 +345,8 @@ export default function StatsPage() {
           </p>
         </div>
         <div className="flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
-          <Trophy className="h-3 w-3 text-orange-500" />
-          Powered by ESPN
+          <Newspaper className="h-3 w-3 text-orange-500" />
+          Multi-source data
         </div>
       </div>
 
@@ -391,7 +393,7 @@ export default function StatsPage() {
       ) : !stats?.hasData ? (
         <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-10 text-center">
           <Trophy className="mx-auto mb-3 h-8 w-8 text-slate-700" />
-          <p className="text-sm text-slate-500">No ESPN data available for {league} right now.</p>
+          <p className="text-sm text-slate-500">No data available for {league} right now.</p>
           <p className="mt-1 text-xs text-slate-700">This league may be in its offseason.</p>
         </div>
       ) : (
