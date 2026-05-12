@@ -7,6 +7,7 @@ export function useBets() {
   const [bets, setBets] = useState<TrackedBet[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [plan, setPlan] = useState<string>("free");
 
   useEffect(() => {
     fetch("/api/bets")
@@ -18,6 +19,11 @@ export function useBets() {
       .then((data) => { if (data?.bets) setBets(data.bets); })
       .catch(() => {})
       .finally(() => setLoaded(true));
+
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => { if (data?.user?.plan) setPlan(data.user.plan); })
+      .catch(() => {});
   }, []);
 
   const trackBet = useCallback(
@@ -78,5 +84,5 @@ export function useBets() {
     return total;
   }, 0);
 
-  return { bets, trackBet, updateResult, removeBet, isTracked, pnl, loaded, authenticated };
+  return { bets, trackBet, updateResult, removeBet, isTracked, pnl, loaded, authenticated, plan };
 }

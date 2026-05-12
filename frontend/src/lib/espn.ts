@@ -568,16 +568,26 @@ async function fetchNextGamesViaTeamSchedule(sport: string, league: string, limi
   if (!teams.length) return [];
 
   const nowMs = Date.now();
+  const yr = new Date().getFullYear();
+  const month = new Date().getMonth();
+
+  // NBA/NHL seasons start in Oct and are named by start year (e.g. 2025-26 season = season=2025).
+  // In Jan-Sep we're in the previous year's season. All other sports use current calendar year.
+  const isOctStart = (sport === "basketball" && league === "nba") || (sport === "hockey" && league === "nhl");
+  const seasonYear = isOctStart && month < 9 ? yr - 1 : yr;
+
   const games: ScheduledGame[] = [];
   const seen = new Set<string>();
 
-  for (const teamEntry of teams.slice(0, 12)) {
+  for (const teamEntry of teams) {
     if (games.length >= limit) break;
     const teamId: string = teamEntry.team?.id ?? teamEntry.id ?? "";
     if (!teamId) continue;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const schedData = await espnFetch<any>(`${ESPN_SITE}/${sport}/${league}/teams/${teamId}/schedule`);
+    const schedData = await espnFetch<any>(
+      `${ESPN_SITE}/${sport}/${league}/teams/${teamId}/schedule?season=${seasonYear}&seasontype=2`,
+    );
     if (!schedData) continue;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

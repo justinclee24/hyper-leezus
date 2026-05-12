@@ -1,0 +1,38 @@
+name: Weekly Newsletter
+
+on:
+  schedule:
+    # Every Monday at 9 AM ET (14:00 UTC)
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+    inputs:
+      plan_filter:
+        description: "Who to send to: all, pro, or free"
+        required: false
+        default: "all"
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send weekly newsletter
+        run: |
+          FILTER="${{ github.event.inputs.plan_filter || 'all' }}"
+          echo "Sending to: $FILTER"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://hyperleez.us/api/admin/auto-newsletter" \
+            -H "x-admin-secret: ${{ secrets.ADMIN_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"planFilter\":\"$FILTER\"}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+
+          echo "Status: $HTTP_CODE"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Newsletter send failed"
+            exit 1
+          fi

@@ -24,7 +24,7 @@ export function BetActions({
   bet: BetRecommendation;
   pmMarket?: PolymarketMarket;
 }) {
-  const { trackBet, isTracked, loaded, authenticated } = useBets();
+  const { trackBet, isTracked, loaded, authenticated, plan } = useBets();
   const router = useRouter();
   const pathname = usePathname();
   const [justTracked, setJustTracked] = useState(false);
@@ -37,6 +37,10 @@ export function BetActions({
   function doTrack(): boolean {
     if (!authenticated) {
       router.push(`/login?from=${encodeURIComponent(pathname)}`);
+      return false;
+    }
+    if (plan !== "pro" && plan !== "admin") {
+      router.push("/upgrade");
       return false;
     }
     if (!tracked) {

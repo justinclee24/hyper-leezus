@@ -12,7 +12,8 @@ export async function POST(req: Request) {
     const user = await findUserByEmail(email.toLowerCase());
     if (user) {
       const token = await createResetToken(user.id, user.email);
-      const resetUrl = `${process.env.NEXT_PUBLIC_URL ?? ""}/reset-password?token=${encodeURIComponent(token)}`;
+      const baseUrl = (process.env.NEXT_PUBLIC_URL ?? "https://hyperleez.us").replace(/\/$/, "");
+      const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
       void sendPasswordResetEmail(user.email, user.name, resetUrl);
     }
   } catch {

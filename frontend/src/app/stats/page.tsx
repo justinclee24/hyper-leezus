@@ -317,7 +317,11 @@ const STATUS_STYLE: Record<string, string> = {
   "Day-To-Day":  "border-slate-500/30 bg-slate-500/10 text-slate-400",
 };
 
-function InjuryReport({ injuries }: { injuries: TeamInjuryReport[] }) {
+const STATUS_ORDER: Record<string, number> = {
+  Out: 0, Doubtful: 1, Questionable: 2, "Day-To-Day": 3,
+};
+
+function InjuryReport({ injuries, standings }: { injuries: TeamInjuryReport[]; standings: TeamRecord[] }) {
   if (!injuries.length) {
     return (
       <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-10 text-center">
@@ -328,37 +332,124 @@ function InjuryReport({ injuries }: { injuries: TeamInjuryReport[] }) {
     );
   }
 
-  const withOut = injuries.filter((t) => t.players.some((p) => p.status === "Out" || p.status === "Doubtful"));
-  const display = withOut.length > 0 ? withOut : injuries;
+  // Sort teams by number of Out players (most impacted first)
+  const sorted = [...injuries]
+    .map((t) => ({
+      ...t,
+      players: [...t.players].sort(
+        (a, b) => (STATUS_ORDER[a.status] ?? 4) - (STATUS_ORDER[b.status] ?? 4),
+      ),
+      outCount: t.players.filter((p) => p.status === "Out").length,
+      doubtCount: t.players.filter((p) => p.status === "Doubtful").length,
+    }))
+    .filter((t) => t.players.some((p) => p.status === "Out" || p.status === "Doubtful" || p.status === "Questionable"))
+    .sort((a, b) => b.outCount - a.outCount || b.doubtCount - a.doubtCount);
+
+  const totalOut = sorted.reduce((n, t) => n + t.outCount, 0);
 
   return (
-    <div className="space-y-3">
-      {display.map((team) => (
-        <div key={team.teamId} className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-200">{team.teamAbbr}</span>
-            <span className="text-xs text-slate-500">{team.teamName}</span>
-            <span className="ml-auto text-[10px] text-slate-700">{team.players.length} player{team.players.length !== 1 ? "s" : ""}</span>
-          </div>
-          <div className="space-y-1.5">
-            {team.players.map((p, i) => {
-              const style = STATUS_STYLE[p.status] ?? STATUS_STYLE["Day-To-Day"];
-              return (
-                <div key={i} className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.02] px-3 py-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[10px] font-bold text-slate-600">{p.position}</span>
-                    <span className="truncate text-sm text-slate-300">{p.name}</span>
+    <div className="space-y-4">
+      {/* Summary bar */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">League Injury Summary</span>
+        <span className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-bold text-red-400">
+          {totalOut} Out
+        </span>
+        <span className="rounded border border-red-400/20 bg-red-400/[0.07] px-2 py-0.5 text-[11px] font-bold text-red-400">
+          {sorted.reduce((n, t) => n + t.doubtCount, 0)} Doubtful
+        </span>
+        <span className="text-[11px] text-slate-600">
+          {sorted.length} team{sorted.length !== 1 ? "s" : ""} affected
+        </span>
+      </div>
+
+      {sorted.map((team) => {
+        const record = matchTeam(team.teamName, standings);
+        const outPlayers    = team.players.filter((p) => p.status === "Out");
+        const doubtPlayers  = team.players.filter((p) => p.status === "Doubtful");
+        const otherPlayers  = team.players.filter((p) => p.status !== "Out" && p.status !== "Doubtful");
+
+        return (
+          <div key={team.teamId} className="rounded-xl border border-white/[0.05] bg-white/[0.02] overflow-hidden">
+            {/* Team header */}
+            <div className="flex items-center gap-3 border-b border-white/[0.05] bg-white/[0.01] px-4 py-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-black text-slate-200">{team.teamAbbr}</span>
+                <span className="truncate text-sm text-slate-400">{team.teamName}</span>
+              </div>
+              <div className="ml-auto flex items-center gap-2 shrink-0">
+                {record && (
+                  <span className="text-[11px] text-slate-600">{record.wins}–{record.losses}</span>
+                )}
+                {team.outCount > 0 && (
+                  <span className="rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold text-red-400">
+                    {team.outCount} OUT
+                  </span>
+                )}
+                {team.doubtCount > 0 && (
+                  <span className="rounded border border-red-400/20 bg-red-400/[0.07] px-1.5 py-0.5 text-[9px] font-bold text-red-400">
+                    {team.doubtCount} DOUBTFUL
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="divide-y divide-white/[0.03] px-4 py-1">
+              {/* Out section */}
+              {outPlayers.length > 0 && (
+                <>
+                  <div className="py-1.5">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-red-500/60">Out</span>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {p.injuryType && <span className="text-[10px] text-slate-600">{p.injuryType}</span>}
-                    <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${style}`}>{p.status}</span>
+                  {outPlayers.map((p, i) => (
+                    <PlayerRow key={`out-${i}`} player={p} />
+                  ))}
+                </>
+              )}
+
+              {/* Doubtful section */}
+              {doubtPlayers.length > 0 && (
+                <>
+                  <div className="py-1.5">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-red-400/50">Doubtful</span>
                   </div>
-                </div>
-              );
-            })}
+                  {doubtPlayers.map((p, i) => (
+                    <PlayerRow key={`doubt-${i}`} player={p} />
+                  ))}
+                </>
+              )}
+
+              {/* Questionable / Day-To-Day */}
+              {otherPlayers.length > 0 && (
+                <>
+                  <div className="py-1.5">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-amber-500/50">Questionable / GTD</span>
+                  </div>
+                  {otherPlayers.map((p, i) => (
+                    <PlayerRow key={`other-${i}`} player={p} />
+                  ))}
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
+    </div>
+  );
+}
+
+function PlayerRow({ player }: { player: { name: string; position: string; status: string; injuryType: string } }) {
+  const style = STATUS_STYLE[player.status] ?? STATUS_STYLE["Day-To-Day"];
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="w-6 shrink-0 text-[10px] font-bold text-slate-600">{player.position}</span>
+        <span className="truncate text-sm text-slate-300">{player.name}</span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {player.injuryType && <span className="text-[10px] text-slate-600">{player.injuryType}</span>}
+        <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${style}`}>{player.status}</span>
+      </div>
     </div>
   );
 }
@@ -683,7 +774,7 @@ export default function StatsPage() {
           {activeTab === "standings" && <StandingsTable standings={stats.standings} />}
 
           {activeTab === "injuries" && (
-            <InjuryReport injuries={stats.injuries ?? []} />
+            <InjuryReport injuries={stats.injuries ?? []} standings={stats.standings} />
           )}
 
           {activeTab === "insights" && (

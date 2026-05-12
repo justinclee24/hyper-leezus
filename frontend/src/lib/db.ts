@@ -167,6 +167,14 @@ export async function deleteTrackedBet(userId: string, id: string): Promise<void
   );
 }
 
+export async function getAllUsers(): Promise<{ id: string; email: string; name: string; plan: string }[]> {
+  await ensureSchema();
+  const { rows } = await pool().query<{ id: string; email: string; name: string; plan: string }>(
+    "SELECT id, email, name, plan FROM auth_users ORDER BY created_at DESC",
+  );
+  return rows;
+}
+
 // ─── Odds cache ───────────────────────────────────────────────────────────────
 
 export async function getOddsCache(
