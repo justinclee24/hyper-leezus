@@ -153,6 +153,27 @@ async function fetchCurrentStreaks(sport: string, league: string): Promise<Recor
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+// Recursively collect team entries from ESPN's standings response.
+// ESPN nests standings differently per sport:
+//   NBA/NFL/NHL: groups → conference → division.standings.entries  (2 levels)
+//   MLB:         groups → league → conference → division.standings.entries (3 levels)
+// This handles any depth up to 4 levels so future structure changes don't break parsing.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function collectEntries(node: any, conf: string, depth: number, out: TeamRecord[]): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const entries: any[] = node.standings?.entries ?? node.entries ?? [];
+  if (entries.length) {
+    for (const e of entries) out.push(parseEntry(e, conf));
+    return;
+  }
+  if (depth >= 4) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const children: any[] = node.children ?? node.groups ?? [];
+  // Use this node's name as the new conference label when recursing deeper
+  const childConf = (node.name ?? node.abbreviation ?? "").trim() || conf;
+  for (const child of children) collectEntries(child, childConf, depth + 1, out);
+}
+
 export async function fetchStandings(leagueKey: string): Promise<TeamRecord[]> {
   const cfg = ESPN_LEAGUES[leagueKey.toUpperCase()];
   if (!cfg) return [];
@@ -167,22 +188,9 @@ export async function fetchStandings(leagueKey: string): Promise<TeamRecord[]> {
   const teams: TeamRecord[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groups: any[] = data.children ?? data.groups ?? [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const group of groups) {
-    const confName: string = group.name ?? group.abbreviation ?? "";
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const divisions: any[] = group.children ?? [];
-    if (divisions.length) {
-      for (const div of divisions) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const entries: any[] = div.standings?.entries ?? div.entries ?? [];
-        for (const entry of entries) teams.push(parseEntry(entry, confName));
-      }
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const entries: any[] = group.standings?.entries ?? group.entries ?? [];
-      for (const entry of entries) teams.push(parseEntry(entry, confName));
-    }
+    const confName: string = (group.name ?? group.abbreviation ?? "").trim();
+    collectEntries(group, confName, 0, teams);
   }
 
   // Deduplicate, then overlay live streaks from scoreboard (includes playoffs)
@@ -586,7 +594,7 @@ async function fetchNextGamesViaTeamSchedule(sport: string, league: string, limi
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const schedData = await espnFetch<any>(
-      `${ESPN_SITE}/${sport}/${league}/teams/${teamId}/schedule?season=${seasonYear}&seasontype=2`,
+      `${ESPN_SITE}/${sport}/${league}/teams/${teamId}/schedule?season=${seasonYear}`,
     );
     if (!schedData) continue;
 
@@ -640,8 +648,23 @@ export async function fetchNextScheduledGames(leagueKey: string, limit = 5): Pro
   const games = parseScheduledGamesFromData(data, limit, nowMs);
   if (games.length > 0) return games;
 
-  // Scoreboard returned nothing (off-season) — fall back to individual team schedules
-  return fetchNextGamesViaTeamSchedule(cfg.sport, cfg.league, limit);
+  // Scoreboard returned nothing — try individual team schedules with the correct season year
+  const fromTeams = await fetchNextGamesViaTeamSchedule(cfg.sport, cfg.league, limit);
+  if (fromTeams.length > 0) return fromTeams;
+
+  // Last resort: ask ESPN for week 1 of the upcoming regular season directly.
+  // This works for sports that use week-based scheduling (NFL, NCAAB, NCAAF).
+  const yr = now.getFullYear();
+  const month = now.getMonth();
+  const isOctStart = (cfg.sport === "basketball" && cfg.league === "nba") || (cfg.sport === "hockey" && cfg.league === "nhl");
+  const seasonYear = isOctStart && month < 9 ? yr - 1 : yr;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const week1Data = await espnFetch<any>(
+    `${ESPN_SITE}/${cfg.sport}/${cfg.league}/scoreboard?seasontype=2&week=1&season=${seasonYear}`,
+  );
+  // Pass nowMs=0 so we include Week 1 games even if the season hasn't started yet —
+  // showing the opener date is useful context for off-season visitors.
+  return parseScheduledGamesFromData(week1Data, limit, 0);
 }
 
 // ─── Injuries ────────────────────────────────────────────────────────────────
