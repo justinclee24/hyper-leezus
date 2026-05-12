@@ -522,6 +522,51 @@ export async function fetchHeadToHead(
   return meetings;
 }
 
+export interface ScheduledGame {
+  date: string;
+  home: string;
+  away: string;
+  homeAbbr: string;
+  awayAbbr: string;
+}
+
+export async function fetchNextScheduledGames(leagueKey: string, limit = 5): Promise<ScheduledGame[]> {
+  const cfg = ESPN_LEAGUES[leagueKey.toUpperCase()];
+  if (!cfg) return [];
+
+  const now = new Date();
+  const far = new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `${ESPN_SITE}/${cfg.sport}/${cfg.league}/scoreboard?dates=${fmtDate(now)}-${fmtDate(far)}&limit=100`,
+  );
+  if (!data) return [];
+
+  const games: ScheduledGame[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const event of data.events ?? []) {
+    if (games.length >= limit) break;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const comp = (event.competitions ?? [])[0] as any;
+    if (!comp || comp.status?.type?.completed) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const competitors: any[] = comp.competitors ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const home = competitors.find((c: any) => c.homeAway === "home");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const away = competitors.find((c: any) => c.homeAway === "away");
+    if (!home || !away) continue;
+    games.push({
+      date: event.date ?? "",
+      home: home.team?.displayName ?? home.team?.name ?? "",
+      away: away.team?.displayName ?? away.team?.name ?? "",
+      homeAbbr: home.team?.abbreviation ?? "",
+      awayAbbr: away.team?.abbreviation ?? "",
+    });
+  }
+  return games;
+}
+
 // Fuzzy-match an Odds API team name to a TeamRecord
 export function matchTeam(oddsName: string, teams: TeamRecord[]): TeamRecord | undefined {
   const n = oddsName.toLowerCase();

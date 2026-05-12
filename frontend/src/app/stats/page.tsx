@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUp, ExternalLink, Lightbulb, MessageSquare, Newspaper, Trophy } from "lucide-react";
-import type { TeamRecord, NewsItem, H2HMeeting } from "@/lib/espn";
+import type { TeamRecord, NewsItem, H2HMeeting, ScheduledGame } from "@/lib/espn";
 import { matchTeam, buildTidbits, ESPN_LEAGUES } from "@/lib/espn";
 import type { GameCard } from "@/lib/data";
 
@@ -12,6 +12,7 @@ const LEAGUES = Object.keys(ESPN_LEAGUES) as League[];
 interface StatsPayload {
   standings: TeamRecord[];
   news: NewsItem[];
+  nextGames: ScheduledGame[];
   hasData: boolean;
 }
 
@@ -401,9 +402,31 @@ export default function StatsPage() {
           {activeTab === "preview" && (
             <div className="grid gap-4 sm:grid-cols-2">
               {previewGames.length === 0 ? (
-                <div className="col-span-2 rounded-xl border border-white/[0.05] bg-white/[0.02] p-8 text-center">
-                  <p className="text-sm text-slate-500">No upcoming {league} games found in today&apos;s schedule.</p>
-                  <p className="mt-1 text-xs text-slate-600">Check the Standings tab to browse team stats.</p>
+                <div className="col-span-2 rounded-xl border border-white/[0.05] bg-white/[0.02] p-6">
+                  <p className="mb-4 text-sm text-slate-500">No {league} games in the current odds window.</p>
+                  {stats.nextGames?.length > 0 && (
+                    <>
+                      <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-600">Next Scheduled Games</p>
+                      <div className="space-y-2">
+                        {stats.nextGames.map((g, i) => {
+                          const d = new Date(g.date).toLocaleDateString("en-US", {
+                            weekday: "short", month: "short", day: "numeric",
+                            hour: "numeric", minute: "2-digit",
+                          });
+                          return (
+                            <div key={i} className="flex items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.02] px-4 py-2.5 text-sm">
+                              <span className="text-slate-300">
+                                <span className="text-slate-500">{g.awayAbbr || g.away.split(" ").pop()}</span>
+                                <span className="mx-2 text-slate-700">@</span>
+                                <span className="font-semibold">{g.homeAbbr || g.home.split(" ").pop()}</span>
+                              </span>
+                              <span className="text-xs text-slate-600">{d}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 previewGames.map((g) => (
