@@ -373,7 +373,7 @@ export default function AnalyticsPage() {
                           <span className="text-xs text-slate-600">Edge {Math.round(bet.edge * 100)}%</span>
                         </div>
                         <div className="mt-0.5 text-xs text-slate-600">
-                          {new Date(bet.trackedAt).toLocaleDateString()} · {bet.stake} unit{bet.stake !== 1 ? "s" : ""}
+                          {new Date(bet.gameDate ?? bet.trackedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {bet.stake} unit{bet.stake !== 1 ? "s" : ""}
                         </div>
                       </div>
                       <button onClick={() => removeBet(bet.id)} className="shrink-0 text-slate-700 hover:text-slate-400" aria-label="Remove">×</button>

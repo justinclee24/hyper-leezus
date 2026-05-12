@@ -3,33 +3,32 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { TrendingUp } from "lucide-react";
 
-function LoginForm() {
-  const [email, setEmail] = useState("");
+function ResetForm() {
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const token = searchParams.get("token") ?? "";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError("");
+    if (password !== confirm) { setError("Passwords don't match"); return; }
+    setLoading(true);
     try {
-      const resp = await fetch("/api/auth/login", {
+      const resp = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ token, password }),
       });
-      if (!resp.ok) {
-        setError("Invalid email or password");
-        return;
-      }
-      const from = searchParams.get("from") ?? "/";
-      router.push(from);
-      router.refresh();
+      const data = await resp.json();
+      if (!resp.ok) { setError(data.error ?? "Something went wrong"); return; }
+      setDone(true);
+      setTimeout(() => router.push("/login"), 2000);
     } catch {
       setError("Something went wrong");
     } finally {
@@ -37,30 +36,45 @@ function LoginForm() {
     }
   }
 
+  if (!token) {
+    return (
+      <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-6 text-center">
+        <p className="text-sm text-red-400">Invalid reset link.</p>
+        <Link href="/forgot-password" className="mt-3 inline-block text-xs text-orange-400 hover:text-orange-300">
+          Request a new one
+        </Link>
+      </div>
+    );
+  }
+
+  if (done) {
+    return (
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-6 text-center">
+        <p className="text-sm text-slate-300">Password updated. Redirecting to sign in…</p>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="mb-1.5 block text-xs font-medium text-slate-400">Email</label>
+        <label className="mb-1.5 block text-xs font-medium text-slate-400">New Password</label>
         <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@example.com"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="••••••••"
+          minLength={8}
           className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm outline-none placeholder:text-slate-600 focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/30"
           required
         />
       </div>
       <div>
-        <div className="flex items-center justify-between">
-          <label className="mb-1.5 block text-xs font-medium text-slate-400">Password</label>
-          <Link href="/forgot-password" className="mb-1.5 text-[11px] text-slate-600 hover:text-slate-400">
-            Forgot password?
-          </Link>
-        </div>
+        <label className="mb-1.5 block text-xs font-medium text-slate-400">Confirm Password</label>
         <input
           type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
           placeholder="••••••••"
           className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm outline-none placeholder:text-slate-600 focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/30"
           required
@@ -72,33 +86,24 @@ function LoginForm() {
         disabled={loading}
         className="w-full rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-400 disabled:opacity-50"
       >
-        {loading ? "Signing in…" : "Sign In"}
+        {loading ? "Updating…" : "Set New Password"}
       </button>
-      <p className="text-center text-xs text-slate-600">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="text-slate-400 hover:text-white">
-          Sign up
-        </Link>
-      </p>
     </form>
   );
 }
 
-export default function LoginPage() {
+export default function ResetPasswordPage() {
   return (
     <div className="flex min-h-[80vh] items-center justify-center">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mb-2 flex justify-center">
-            <TrendingUp className="h-6 w-6 text-orange-500" />
-          </div>
           <h1 className="text-2xl font-black tracking-tight">
             HYPER<span className="text-orange-500">LEEZUS</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-500">Sign in to track your picks</p>
+          <p className="mt-1 text-sm text-slate-500">Choose a new password</p>
         </div>
         <Suspense fallback={<div className="h-48 animate-pulse rounded-xl bg-white/[0.02]" />}>
-          <LoginForm />
+          <ResetForm />
         </Suspense>
       </div>
     </div>

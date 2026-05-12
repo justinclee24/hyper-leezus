@@ -530,22 +530,15 @@ export interface ScheduledGame {
   awayAbbr: string;
 }
 
-export async function fetchNextScheduledGames(leagueKey: string, limit = 5): Promise<ScheduledGame[]> {
-  const cfg = ESPN_LEAGUES[leagueKey.toUpperCase()];
-  if (!cfg) return [];
-
-  const now = new Date();
-  const far = new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = await espnFetch<any>(
-    `${ESPN_SITE}/${cfg.sport}/${cfg.league}/scoreboard?dates=${fmtDate(now)}-${fmtDate(far)}&limit=100`,
-  );
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseScheduledGamesFromData(data: any, limit: number, nowMs: number): ScheduledGame[] {
   if (!data) return [];
-
   const games: ScheduledGame[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const event of data.events ?? []) {
     if (games.length >= limit) break;
+    const eventMs = new Date(event.date ?? "").getTime();
+    if (!isNaN(eventMs) && eventMs < nowMs) continue;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const comp = (event.competitions ?? [])[0] as any;
     if (!comp || comp.status?.type?.completed) continue;
@@ -566,6 +559,164 @@ export async function fetchNextScheduledGames(leagueKey: string, limit = 5): Pro
   }
   return games;
 }
+
+async function fetchNextGamesViaTeamSchedule(sport: string, league: string, limit: number): Promise<ScheduledGame[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const teamsData = await espnFetch<any>(`${ESPN_SITE}/${sport}/${league}/teams?limit=50`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const teams: any[] = teamsData?.sports?.[0]?.leagues?.[0]?.teams ?? teamsData?.teams ?? [];
+  if (!teams.length) return [];
+
+  const nowMs = Date.now();
+  const games: ScheduledGame[] = [];
+  const seen = new Set<string>();
+
+  for (const teamEntry of teams.slice(0, 12)) {
+    if (games.length >= limit) break;
+    const teamId: string = teamEntry.team?.id ?? teamEntry.id ?? "";
+    if (!teamId) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const schedData = await espnFetch<any>(`${ESPN_SITE}/${sport}/${league}/teams/${teamId}/schedule`);
+    if (!schedData) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const event of schedData.events ?? []) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const comp = (event.competitions ?? [])[0] as any;
+      if (!comp || comp.status?.type?.completed) continue;
+      const eventMs = new Date(event.date ?? "").getTime();
+      if (isNaN(eventMs) || eventMs < nowMs) continue;
+
+      const key: string = event.id ?? "";
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const competitors: any[] = comp.competitors ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const home = competitors.find((c: any) => c.homeAway === "home");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const away = competitors.find((c: any) => c.homeAway === "away");
+      if (!home || !away) continue;
+
+      games.push({
+        date: event.date ?? "",
+        home: home.team?.displayName ?? home.team?.name ?? "",
+        away: away.team?.displayName ?? away.team?.name ?? "",
+        homeAbbr: home.team?.abbreviation ?? "",
+        awayAbbr: away.team?.abbreviation ?? "",
+      });
+      if (games.length >= limit) break;
+    }
+  }
+
+  games.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  return games.slice(0, limit);
+}
+
+export async function fetchNextScheduledGames(leagueKey: string, limit = 5): Promise<ScheduledGame[]> {
+  const cfg = ESPN_LEAGUES[leagueKey.toUpperCase()];
+  if (!cfg) return [];
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const far = new Date(nowMs + 120 * 24 * 60 * 60 * 1000);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `${ESPN_SITE}/${cfg.sport}/${cfg.league}/scoreboard?dates=${fmtDate(now)}-${fmtDate(far)}&limit=100`,
+  );
+
+  const games = parseScheduledGamesFromData(data, limit, nowMs);
+  if (games.length > 0) return games;
+
+  // Scoreboard returned nothing (off-season) — fall back to individual team schedules
+  return fetchNextGamesViaTeamSchedule(cfg.sport, cfg.league, limit);
+}
+
+// ─── Injuries ────────────────────────────────────────────────────────────────
+
+export interface InjuredPlayer {
+  name: string;
+  position: string;
+  status: string;       // "Out", "Doubtful", "Questionable", "Day-To-Day"
+  injuryType: string;
+}
+
+export interface TeamInjuryReport {
+  teamId: string;
+  teamName: string;
+  teamAbbr: string;
+  players: InjuredPlayer[];
+}
+
+export async function fetchInjuries(leagueKey: string): Promise<TeamInjuryReport[]> {
+  const cfg = ESPN_LEAGUES[leagueKey.toUpperCase()];
+  if (!cfg) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(`${ESPN_SITE}/${cfg.sport}/${cfg.league}/injuries`);
+  if (!data) return [];
+
+  const reports: TeamInjuryReport[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const entry of (data.injuries ?? []) as any[]) {
+    const team = entry.team ?? {};
+    const players: InjuredPlayer[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inj of (entry.injuries ?? []) as any[]) {
+      const status: string = inj.status ?? inj.fantasyStatus?.description ?? "";
+      if (!status || ["Active", "Active-Game Time Decision"].includes(status)) continue;
+      players.push({
+        name:        inj.athlete?.displayName ?? inj.athlete?.shortName ?? "",
+        position:    inj.athlete?.position?.abbreviation ?? "",
+        status,
+        injuryType:  inj.details?.type ?? inj.type?.abbreviation ?? inj.shortComment ?? "",
+      });
+    }
+    if (players.length > 0) {
+      reports.push({
+        teamId:   team.id ?? "",
+        teamName: team.displayName ?? team.name ?? "",
+        teamAbbr: team.abbreviation ?? "",
+        players,
+      });
+    }
+  }
+  return reports;
+}
+
+/** Returns the most recent completed game date per ESPN team ID over the past 14 days. */
+export async function fetchLastGameDates(sport: string, league: string): Promise<Map<string, Date>> {
+  const end   = new Date();
+  const start = new Date(end.getTime() - 14 * 24 * 60 * 60 * 1000);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `${ESPN_SITE}/${sport}/${league}/scoreboard?dates=${fmtDate(start)}-${fmtDate(end)}&limit=200`,
+  );
+  if (!data) return new Map();
+
+  const lastGame = new Map<string, Date>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const event of (data.events ?? []) as any[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const comp = (event.competitions ?? [])[0] as any;
+    const completed =
+      comp?.status?.type?.completed === true || comp?.status?.type?.name === "STATUS_FINAL";
+    if (!completed) continue;
+    const gameDate = new Date(event.date ?? "");
+    if (isNaN(gameDate.getTime())) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of (comp.competitors ?? []) as any[]) {
+      const id: string = c.team?.id ?? c.id ?? "";
+      if (!id) continue;
+      const existing = lastGame.get(id);
+      if (!existing || gameDate > existing) lastGame.set(id, gameDate);
+    }
+  }
+  return lastGame;
+}
+
+// ─── Fuzzy-match ──────────────────────────────────────────────────────────────
 
 // Fuzzy-match an Odds API team name to a TeamRecord
 export function matchTeam(oddsName: string, teams: TeamRecord[]): TeamRecord | undefined {

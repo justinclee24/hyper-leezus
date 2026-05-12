@@ -24,6 +24,24 @@ async function send(to: string | string[], subject: string, html: string): Promi
   }
 }
 
+export async function sendPasswordResetEmail(toEmail: string, name: string, resetUrl: string): Promise<void> {
+  await send(
+    toEmail,
+    "Reset your HyperLeezus password",
+    `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#e2e8f0;background:#07101e;padding:32px;border-radius:12px">
+      <h1 style="font-size:22px;font-weight:900;margin:0 0 4px">Reset your password</h1>
+      <p style="color:#94a3b8;font-size:14px;margin:0 0 24px">Hi ${name} — click the link below to set a new password. This link expires in 1 hour.</p>
+      <a href="${resetUrl}"
+        style="display:inline-block;background:#f97316;color:#fff;font-weight:700;font-size:13px;padding:12px 24px;border-radius:8px;text-decoration:none">
+        Reset Password →
+      </a>
+      <p style="font-size:12px;color:#475569;margin:24px 0 0">If you didn't request this, you can safely ignore this email.</p>
+    </div>
+    `,
+  );
+}
+
 // ─── User-facing emails ───────────────────────────────────────────────────────
 
 export async function sendWelcomeEmail(toEmail: string, name: string): Promise<void> {

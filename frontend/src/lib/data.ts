@@ -7,6 +7,15 @@ export type TeamStats = {
   streak: number;      // +N = W streak, -N = L streak
 };
 
+export interface PitcherInfo {
+  name: string;
+  era: number;
+  whip: number;
+  k9: number;
+  wins: number;
+  losses: number;
+}
+
 export type GameCard = {
   id: string;
   league: string;
@@ -22,6 +31,17 @@ export type GameCard = {
   totalVariance?: number;
   homeStats?: TeamStats;
   awayStats?: TeamStats;
+  // Enriched fields
+  homeRestDays?: number;
+  awayRestDays?: number;
+  homeInjuryCount?: number;
+  awayInjuryCount?: number;
+  homePitcher?: PitcherInfo;    // MLB only
+  awayPitcher?: PitcherInfo;    // MLB only
+  homePowerPlay?: number;       // NHL: power play %
+  awayPowerPlay?: number;
+  homeGoalsPerGame?: number;    // NHL: goals for per game
+  awayGoalsPerGame?: number;
 };
 
 export type TrackedBet = {
@@ -35,6 +55,7 @@ export type TrackedBet = {
   stake: number;
   league: string;
   trackedAt: string;
+  gameDate?: string;
   result: "pending" | "win" | "loss" | "push";
 };
 
@@ -50,6 +71,7 @@ export type BetRecommendation = {
   confidence: number;
   reasoning: string;
   hot: boolean;
+  gameDate?: string;
 };
 
 export const accuracySeries = [

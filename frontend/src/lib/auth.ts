@@ -52,4 +52,31 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
   }
 }
 
+const RESET_TTL = 60 * 60 * 1000; // 1 hour
+
+export async function createResetToken(userId: string, email: string): Promise<string> {
+  const payload = btoa(
+    JSON.stringify({ id: userId, email, purpose: "reset", exp: Date.now() + RESET_TTL }),
+  );
+  const sig = await hmacSign(payload, getSecret());
+  return `${payload}.${sig}`;
+}
+
+export async function verifyResetToken(token: string): Promise<{ id: string; email: string } | null> {
+  try {
+    const dot = token.lastIndexOf(".");
+    if (dot === -1) return null;
+    const payload = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const expectedSig = await hmacSign(payload, getSecret());
+    if (sig !== expectedSig) return null;
+    const data = JSON.parse(atob(payload));
+    if (data.purpose !== "reset") return null;
+    if (!data.exp || data.exp < Date.now()) return null;
+    return { id: data.id, email: data.email };
+  } catch {
+    return null;
+  }
+}
+
 export { COOKIE_NAME, MAX_AGE };

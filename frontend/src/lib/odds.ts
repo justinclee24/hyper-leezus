@@ -1,6 +1,12 @@
 import type { BetRecommendation, GameCard, TeamStats } from "./data";
 import { getOddsCache, setOddsCache } from "./db";
-import { fetchStandings, matchTeam, type TeamRecord } from "./espn";
+import {
+  fetchStandings, matchTeam, fetchInjuries, fetchLastGameDates,
+  ESPN_LEAGUES,
+  type TeamRecord, type TeamInjuryReport,
+} from "./espn";
+import { fetchMLBPitchers, matchMLBPitcher } from "./mlb";
+import { fetchNHLStats, matchNHLTeam } from "./nhl";
 
 export const SPORTS: Record<string, string> = {
   basketball_nba: "NBA",
@@ -242,6 +248,30 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
       }
     }
 
+    // Signal 5: Rest differential — back-to-back (≤1 day rest) is a proven edge
+    const homeB2B = (game.homeRestDays ?? 999) <= 1;
+    const awayB2B = (game.awayRestDays ?? 999) <= 1;
+    if (homeB2B && !awayB2B) {
+      sideScore -= 1;
+      const label = game.homeRestDays === 0 ? "B2B" : "1-day rest";
+      sideSignals.push(`${homeName} on short rest (${label})`);
+    } else if (awayB2B && !homeB2B) {
+      sideScore += 1;
+      const label = game.awayRestDays === 0 ? "B2B" : "1-day rest";
+      sideSignals.push(`${awayName} on short rest (${label})`);
+    }
+
+    // Signal 6: Key injuries — ≥2 out/doubtful is a meaningful team downgrade
+    const homeInj = game.homeInjuryCount ?? 0;
+    const awayInj = game.awayInjuryCount ?? 0;
+    if (homeInj >= 2 && homeInj > awayInj) {
+      sideScore -= 1;
+      sideSignals.push(`${homeName} missing ${homeInj} key players`);
+    } else if (awayInj >= 2 && awayInj > homeInj) {
+      sideScore += 1;
+      sideSignals.push(`${awayName} missing ${awayInj} key players`);
+    }
+
     // Require 2+ signals to agree before generating a side pick
     if (Math.abs(sideScore) >= 2) {
       const baseEdge = Math.abs(sideScore) * 0.022 + Math.abs(mktEdge) * 0.35;
@@ -259,6 +289,7 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
             betType: "Spread",
             pick: `${homeName} ${game.spread}`,
             odds: "-110", edge, confidence: adjConf, reasoning, hot,
+            gameDate: game.startTime,
           });
         } else if (!favorHome) {
           const awayProb = 1 - p;
@@ -271,6 +302,7 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
               pick: `${awayName} ML`,
               odds: `+${impliedOdds}`,
               edge, confidence: adjConf, reasoning, hot,
+              gameDate: game.startTime,
             });
           }
         }
@@ -318,6 +350,45 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
         }
       }
 
+      // Signal D: MLB starting pitcher ERA vs league average (4.20)
+      // Better-than-avg starters → lean Under; worse-than-avg → lean Over
+      if (game.league === "MLB") {
+        const MLB_AVG_ERA = 4.20;
+        let eraDelta = 0;
+        const pitcherNotes: string[] = [];
+        for (const [pitcher, label] of [[game.homePitcher, homeName], [game.awayPitcher, awayName]] as const) {
+          if (pitcher && pitcher.era > 0) {
+            const adj = (pitcher.era - MLB_AVG_ERA) * 0.14;
+            eraDelta += adj;
+            if (Math.abs(pitcher.era - MLB_AVG_ERA) > 0.7) {
+              pitcherNotes.push(`${pitcher.name} ${pitcher.era.toFixed(2)} ERA`);
+            }
+          }
+        }
+        if (Math.abs(eraDelta) > 0.12 && pitcherNotes.length) {
+          totScore += eraDelta; // positive = lean Over (bad pitchers); negative = lean Under (elite starters)
+          totSignals.push(`Starters: ${pitcherNotes.join(", ")} → ${eraDelta < 0 ? "lean Under" : "lean Over"}`);
+        }
+      }
+
+      // Signal E: NHL power play % — high combined PP% boosts expected goals
+      if (game.league === "NHL") {
+        const NHL_AVG_PP = 20.0;
+        let ppDelta = 0;
+        const ppNotes: string[] = [];
+        for (const [pp, label] of [[game.homePowerPlay, homeName], [game.awayPowerPlay, awayName]] as const) {
+          if (pp !== undefined) {
+            const adj = (pp - NHL_AVG_PP) / 80; // ~0.06 range per 5pp points above avg
+            ppDelta += adj;
+            if (Math.abs(pp - NHL_AVG_PP) > 3) ppNotes.push(`${label} PP ${pp.toFixed(1)}%`);
+          }
+        }
+        if (Math.abs(ppDelta) > 0.04 && ppNotes.length) {
+          totScore += ppDelta * 6;
+          totSignals.push(`Special teams: ${ppNotes.join(", ")}`);
+        }
+      }
+
       if (Math.abs(totScore) >= 1) {
         const isOver = totScore > 0;
         const edge = Math.round(Math.min(Math.abs(totScore) * 0.033 + 0.01, 0.11) * 100) / 100;
@@ -331,6 +402,7 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
             confidence: Math.min(game.confidence + Math.abs(totScore) * 0.02, 0.92),
             reasoning: totSignals.join(" · "),
             hot: Math.abs(totScore) >= 2 && edge >= 0.06,
+            gameDate: game.startTime,
           });
         }
       }
@@ -440,20 +512,91 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
 
   const sorted = games.sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-  // Enrich games with ESPN team stats (free — no quota impact)
+  // Enrich games with all available signals in one parallel pass
   if (sorted.length > 0) {
     const leagues = [...new Set(sorted.map((g) => g.league))];
-    const standingsArrays = await Promise.all(leagues.map((l) => fetchStandings(l)));
-    const byLeague = new Map<string, TeamRecord[]>(
-      leagues.map((l, i) => [l, standingsArrays[i]])
+
+    // All enrichment fetches run in parallel
+    const [
+      standingsArrays,
+      lastGameMapsArr,
+      injuryReportsArr,
+      mlbPitchersMap,
+      nhlStatsMap,
+    ] = await Promise.all([
+      Promise.all(leagues.map((l) => fetchStandings(l))),
+      Promise.all(leagues.map((l) => {
+        const cfg = ESPN_LEAGUES[l];
+        return cfg ? fetchLastGameDates(cfg.sport, cfg.league) : Promise.resolve(new Map<string, Date>());
+      })),
+      Promise.all(leagues.map((l) => fetchInjuries(l))),
+      leagues.includes("MLB") ? fetchMLBPitchers() : Promise.resolve(new Map<string, import("./data").PitcherInfo>()),
+      leagues.includes("NHL") ? fetchNHLStats()    : Promise.resolve(new Map<string, import("./nhl").NHLTeamStats>()),
+    ]);
+
+    const byLeague        = new Map(leagues.map((l, i) => [l, standingsArrays[i]]));
+    const lastGamesByLeague = new Map(leagues.map((l, i) => [l, lastGameMapsArr[i]]));
+
+    // Build injury count maps: teamAbbr.toUpperCase() → # of Out/Doubtful players
+    const injCountByLeague = new Map<string, Map<string, number>>(
+      leagues.map((l, i) => {
+        const countMap = new Map<string, number>();
+        for (const team of injuryReportsArr[i] as TeamInjuryReport[]) {
+          const cnt = team.players.filter((p) => p.status === "Out" || p.status === "Doubtful").length;
+          if (cnt > 0) countMap.set(team.teamAbbr.toUpperCase(), cnt);
+        }
+        return [l, countMap];
+      }),
     );
+
     for (const game of sorted) {
-      const records = byLeague.get(game.league) ?? [];
-      if (!records.length) continue;
-      const hr = matchTeam(game.homeTeam, records);
-      const ar = matchTeam(game.awayTeam, records);
+      const records  = byLeague.get(game.league) ?? [];
+      const hr       = records.length ? matchTeam(game.homeTeam, records) : undefined;
+      const ar       = records.length ? matchTeam(game.awayTeam, records) : undefined;
+
       if (hr) game.homeStats = toTeamStats(hr);
       if (ar) game.awayStats = toTeamStats(ar);
+
+      // Rest days — days between last completed game and this game
+      const lastGames = lastGamesByLeague.get(game.league);
+      if (lastGames) {
+        const gameMs = new Date(game.startTime).getTime();
+        if (hr?.id) {
+          const lg = lastGames.get(hr.id);
+          if (lg) game.homeRestDays = Math.round((gameMs - lg.getTime()) / 86_400_000);
+        }
+        if (ar?.id) {
+          const lg = lastGames.get(ar.id);
+          if (lg) game.awayRestDays = Math.round((gameMs - lg.getTime()) / 86_400_000);
+        }
+      }
+
+      // Injury counts — matched by ESPN abbreviation
+      const injCounts = injCountByLeague.get(game.league);
+      if (injCounts) {
+        if (hr) game.homeInjuryCount = injCounts.get(hr.abbreviation.toUpperCase()) ?? 0;
+        if (ar) game.awayInjuryCount = injCounts.get(ar.abbreviation.toUpperCase()) ?? 0;
+      }
+
+      // MLB: probable starting pitchers
+      if (game.league === "MLB" && mlbPitchersMap.size > 0) {
+        game.homePitcher = matchMLBPitcher(game.homeTeam, mlbPitchersMap);
+        game.awayPitcher = matchMLBPitcher(game.awayTeam, mlbPitchersMap);
+      }
+
+      // NHL: power play % and goals/game from official NHL API
+      if (game.league === "NHL" && nhlStatsMap.size > 0) {
+        const homeNHL = matchNHLTeam(game.homeTeam, nhlStatsMap);
+        const awayNHL = matchNHLTeam(game.awayTeam, nhlStatsMap);
+        if (homeNHL) {
+          game.homePowerPlay    = homeNHL.powerPlayPct;
+          game.homeGoalsPerGame = homeNHL.goalsForPerGame;
+        }
+        if (awayNHL) {
+          game.awayPowerPlay    = awayNHL.powerPlayPct;
+          game.awayGoalsPerGame = awayNHL.goalsForPerGame;
+        }
+      }
     }
   }
 

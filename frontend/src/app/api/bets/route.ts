@@ -28,6 +28,7 @@ export async function POST(req: Request) {
     stake: body.stake ?? 1,
     league: body.league,
     trackedAt: new Date().toISOString(),
+    gameDate: body.gameDate ?? undefined,
     result: "pending",
   };
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart3, Clock, Flame, Target, TrendingUp, Layers } from "lucide-react";
+import { BarChart3, Clock, Flame, Target, TrendingUp } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -197,34 +197,6 @@ function computeMetrics(data: ModelStatsPayload | null) {
   };
 }
 
-// ─── Parlay helpers ──────────────────────────────────────────────────────────
-
-function americanToDecimal(odds: string): number {
-  const n = parseFloat(odds.replace("+", ""));
-  if (n > 0) return 1 + n / 100;
-  if (n < 0) return 1 + 100 / Math.abs(n);
-  return 1;
-}
-
-function decimalToAmerican(d: number): string {
-  if (d >= 2) return `+${Math.round((d - 1) * 100)}`;
-  return `-${Math.round(100 / (d - 1))}`;
-}
-
-function buildParlays(picks: BetRecommendation[]) {
-  if (picks.length < 2) return [];
-  const sorted = [...picks].sort((a, b) => b.edge * b.confidence - a.edge * a.confidence);
-  const top = sorted.slice(0, Math.min(4, picks.length));
-
-  return [2, 3]
-    .filter((n) => top.length >= n)
-    .map((n) => {
-      const legs = top.slice(0, n);
-      const decimal = legs.reduce((acc, p) => acc * americanToDecimal(p.odds), 1);
-      const winPct = legs.reduce((acc, p) => acc * p.confidence, 1);
-      return { legs, odds: decimalToAmerican(decimal), winPct, label: `${n}-Leg` };
-    });
-}
 
 // Number of picks shown in full to unauthenticated or non-pro visitors
 const FREE_PREVIEW_COUNT = 2;
@@ -444,52 +416,6 @@ export default function HomePage() {
         })()}
       </section>
 
-      {/* Parlay Suggestions */}
-      {!loading && (() => {
-        const parlays = buildParlays(filteredPicks);
-        if (!parlays.length) return null;
-        return (
-          <section className="mb-10">
-            <div className="mb-4 flex items-center gap-3">
-              <Layers className="h-5 w-5 text-violet-400" />
-              <h2 className="text-xl font-bold tracking-tight">Parlay Suggestions</h2>
-              <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-xs font-semibold text-violet-400">
-                AI-combined
-              </span>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {parlays.map((p) => (
-                <div
-                  key={p.label}
-                  className="rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-5"
-                >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-bold text-violet-300">{p.label} Parlay</span>
-                    <span className="text-xl font-black text-white">{p.odds}</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {p.legs.map((leg, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
-                          {leg.league}
-                        </span>
-                        <span className="flex-1 truncate text-slate-300">{leg.pick}</span>
-                        <span className="shrink-0 text-slate-600">{leg.odds}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 flex items-center justify-between border-t border-white/[0.05] pt-2.5 text-xs">
-                    <span className="text-slate-600">Combined win prob.</span>
-                    <span className="font-semibold text-slate-400">
-                      {(p.winPct * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        );
-      })()}
 
       <section className="mb-10">
         <div className="mb-4 flex items-center justify-between">

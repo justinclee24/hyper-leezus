@@ -49,6 +49,7 @@ export function BetActions({
         edge: bet.edge,
         stake: 1,
         league: bet.league,
+        gameDate: bet.gameDate,
       });
       setJustTracked(true);
     }
