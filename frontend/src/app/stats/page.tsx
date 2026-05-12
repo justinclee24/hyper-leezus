@@ -372,10 +372,10 @@ function InjuryReport({ injuries, standings }: { injuries: TeamInjuryReport[]; s
         return (
           <div key={team.teamId} className="rounded-xl border border-white/[0.05] bg-white/[0.02] overflow-hidden">
             {/* Team header */}
-            <div className="flex items-center gap-3 border-b border-white/[0.05] bg-white/[0.01] px-4 py-3">
+            <div className="flex items-center gap-3 border-b border-white/[0.05] bg-white/[0.02] px-4 py-3">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="text-sm font-black text-slate-200">{team.teamAbbr}</span>
-                <span className="truncate text-sm text-slate-400">{team.teamName}</span>
+                <span className="text-base font-black text-white">{team.teamAbbr}</span>
+                <span className="truncate text-sm font-medium text-slate-300">{team.teamName}</span>
               </div>
               <div className="ml-auto flex items-center gap-2 shrink-0">
                 {record && (
@@ -702,7 +702,7 @@ export default function StatsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-5 overflow-x-auto border-b border-white/[0.05]">
+      <div className="mb-6 flex gap-5 overflow-x-auto border-b border-white/[0.05] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((tab) => (
           <button
             key={tab.id}

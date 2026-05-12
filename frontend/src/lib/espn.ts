@@ -179,8 +179,14 @@ export async function fetchStandings(leagueKey: string): Promise<TeamRecord[]> {
   if (!cfg) return [];
 
   const [data, liveStreaks] = await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    espnFetch<any>(`${ESPN_V2}/${cfg.sport}/${cfg.league}/standings`),
+    // Try V2 standings first; fall back to site endpoint if V2 returns no groups (e.g. MLB)
+    (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const v2 = await espnFetch<any>(`${ESPN_V2}/${cfg.sport}/${cfg.league}/standings`);
+      if ((v2?.children ?? v2?.groups ?? []).length > 0) return v2;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return espnFetch<any>(`${ESPN_SITE}/${cfg.sport}/${cfg.league}/standings`);
+    })(),
     fetchCurrentStreaks(cfg.sport, cfg.league),
   ]);
   if (!data) return [];

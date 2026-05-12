@@ -122,14 +122,14 @@ export async function GET(req: Request) {
 
   const [standings, espnNews, redditItems, newsApiItems, nextGames, injuries, mlbPitchers, nhlStats] =
     await Promise.all([
-      fetchStandings(league),
-      fetchNews(league),
-      fetchRedditContent(league),
-      fetchNewsApiContent(league),
-      fetchNextScheduledGames(league),
-      fetchInjuries(league),
-      isMLB ? fetchMLBPitchers() : Promise.resolve(null),
-      isNHL ? fetchNHLStats()    : Promise.resolve(null),
+      fetchStandings(league).catch(() => []),
+      fetchNews(league).catch(() => []),
+      fetchRedditContent(league).catch(() => []),
+      fetchNewsApiContent(league).catch(() => []),
+      fetchNextScheduledGames(league).catch(() => []),
+      fetchInjuries(league).catch(() => []),
+      (isMLB ? fetchMLBPitchers() : Promise.resolve(null)).catch(() => null),
+      (isNHL ? fetchNHLStats()    : Promise.resolve(null)).catch(() => null),
     ]);
 
   const news = [
@@ -171,6 +171,8 @@ export async function GET(req: Request) {
     hasData: standings.length > 0 || news.length > 0,
     updatedAt: new Date().toISOString(),
   };
-  _cache.set(league, { payload, expiry: Date.now() + CACHE_TTL });
+  if (payload.hasData) {
+    _cache.set(league, { payload, expiry: Date.now() + CACHE_TTL });
+  }
   return NextResponse.json(payload);
 }
