@@ -372,10 +372,16 @@ function InjuryReport({ injuries, standings }: { injuries: TeamInjuryReport[]; s
         return (
           <div key={team.teamId} className="rounded-xl border border-white/[0.05] bg-white/[0.02] overflow-hidden">
             {/* Team header */}
-            <div className="flex items-center gap-3 border-b border-white/[0.05] bg-white/[0.02] px-4 py-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-base font-black text-white">{team.teamAbbr}</span>
-                <span className="truncate text-sm font-medium text-slate-300">{team.teamName}</span>
+            <div className="flex items-center gap-3 border-b border-white/[0.07] bg-white/[0.06] px-4 py-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                {team.teamAbbr && (
+                  <span className="shrink-0 rounded bg-orange-500/20 px-2 py-0.5 text-xs font-black tracking-widest text-orange-300">
+                    {team.teamAbbr}
+                  </span>
+                )}
+                <span className="truncate text-base font-bold text-white">
+                  {team.teamName || team.teamAbbr || "Unknown Team"}
+                </span>
               </div>
               <div className="ml-auto flex items-center gap-2 shrink-0">
                 {record && (

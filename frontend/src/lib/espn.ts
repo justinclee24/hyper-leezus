@@ -639,13 +639,55 @@ async function fetchNextGamesViaTeamSchedule(sport: string, league: string, limi
   return games.slice(0, limit);
 }
 
+// SportsDB free API — covers major US/EU leagues when ESPN is in off-season
+const SPORTSDB_LEAGUE_ID: Record<string, string> = {
+  NFL: "4391", NBA: "4387", MLB: "4424", NHL: "4380",
+  MLS: "4346", EPL: "4328", NCAAB: "4479",
+};
+
+async function fetchNextGamesFromSportsDB(leagueKey: string, limit: number): Promise<ScheduledGame[]> {
+  const id = SPORTSDB_LEAGUE_ID[leagueKey.toUpperCase()];
+  if (!id) return [];
+  const yr = new Date().getFullYear();
+  // NFL/NBA/NHL/EPL seasons span two years; MLB/MLS use single year
+  const season = ["MLB", "MLS"].includes(leagueKey.toUpperCase()) ? `${yr}` : `${yr}-${yr + 1}`;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `https://www.thesportsdb.com/api/v1/json/3/eventsseason.php?id=${id}&s=${encodeURIComponent(season)}`,
+  );
+  if (!data?.events) return [];
+
+  const nowMs = Date.now();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const upcoming = (data.events as any[])
+    .filter((e) => {
+      if (e.intHomeScore !== null && e.intHomeScore !== "") return false;
+      const ms = new Date(`${e.dateEvent}T${e.strTime ?? "12:00:00"}`).getTime();
+      return !isNaN(ms) && ms > nowMs;
+    })
+    .sort((a: any, b: any) =>
+      new Date(`${a.dateEvent}T${a.strTime ?? "12:00:00"}`).getTime() -
+      new Date(`${b.dateEvent}T${b.strTime ?? "12:00:00"}`).getTime(),
+    )
+    .slice(0, limit);
+
+  return upcoming.map((e: any) => ({
+    date:     `${e.dateEvent}T${e.strTime ?? "12:00:00"}`,
+    home:     e.strHomeTeam ?? "",
+    away:     e.strAwayTeam ?? "",
+    homeAbbr: "",
+    awayAbbr: "",
+  }));
+}
+
 export async function fetchNextScheduledGames(leagueKey: string, limit = 5): Promise<ScheduledGame[]> {
   const cfg = ESPN_LEAGUES[leagueKey.toUpperCase()];
   if (!cfg) return [];
 
   const now = new Date();
   const nowMs = now.getTime();
-  const far = new Date(nowMs + 120 * 24 * 60 * 60 * 1000);
+  // 210 days covers NFL (season starts early September, ~120 days from May isn't enough)
+  const far = new Date(nowMs + 210 * 24 * 60 * 60 * 1000);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = await espnFetch<any>(
     `${ESPN_SITE}/${cfg.sport}/${cfg.league}/scoreboard?dates=${fmtDate(now)}-${fmtDate(far)}&limit=100`,
@@ -658,19 +700,23 @@ export async function fetchNextScheduledGames(leagueKey: string, limit = 5): Pro
   const fromTeams = await fetchNextGamesViaTeamSchedule(cfg.sport, cfg.league, limit);
   if (fromTeams.length > 0) return fromTeams;
 
-  // Last resort: ask ESPN for week 1 of the upcoming regular season directly.
-  // This works for sports that use week-based scheduling (NFL, NCAAB, NCAAF).
+  // Try first few weeks of the upcoming regular season directly
   const yr = now.getFullYear();
   const month = now.getMonth();
   const isOctStart = (cfg.sport === "basketball" && cfg.league === "nba") || (cfg.sport === "hockey" && cfg.league === "nhl");
   const seasonYear = isOctStart && month < 9 ? yr - 1 : yr;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const week1Data = await espnFetch<any>(
-    `${ESPN_SITE}/${cfg.sport}/${cfg.league}/scoreboard?seasontype=2&week=1&season=${seasonYear}`,
-  );
-  // Pass nowMs=0 so we include Week 1 games even if the season hasn't started yet —
-  // showing the opener date is useful context for off-season visitors.
-  return parseScheduledGamesFromData(week1Data, limit, 0);
+  for (const week of [1, 2, 3]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const weekData = await espnFetch<any>(
+      `${ESPN_SITE}/${cfg.sport}/${cfg.league}/scoreboard?seasontype=2&week=${week}&season=${seasonYear}`,
+    );
+    // nowMs=0: include games even if the season hasn't started yet
+    const weekGames = parseScheduledGamesFromData(weekData, limit, 0);
+    if (weekGames.length > 0) return weekGames;
+  }
+
+  // Final fallback: SportsDB free API (no key required for basic use)
+  return fetchNextGamesFromSportsDB(leagueKey, limit);
 }
 
 // ─── Injuries ────────────────────────────────────────────────────────────────
@@ -699,24 +745,29 @@ export async function fetchInjuries(leagueKey: string): Promise<TeamInjuryReport
   const reports: TeamInjuryReport[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const entry of (data.injuries ?? []) as any[]) {
-    const team = entry.team ?? {};
+    // ESPN sometimes double-nests team as entry.team.team (common in their APIs)
+    const teamObj = entry.team?.team ?? entry.team ?? {};
     const players: InjuredPlayer[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const inj of (entry.injuries ?? []) as any[]) {
+    for (const inj of (entry.injuries ?? entry.athletes ?? []) as any[]) {
       const status: string = inj.status ?? inj.fantasyStatus?.description ?? "";
       if (!status || ["Active", "Active-Game Time Decision"].includes(status)) continue;
       players.push({
-        name:        inj.athlete?.displayName ?? inj.athlete?.shortName ?? "",
-        position:    inj.athlete?.position?.abbreviation ?? "",
+        name:        inj.athlete?.displayName ?? inj.athlete?.shortName ?? inj.displayName ?? "",
+        position:    inj.athlete?.position?.abbreviation ?? inj.position?.abbreviation ?? "",
         status,
         injuryType:  inj.details?.type ?? inj.type?.abbreviation ?? inj.shortComment ?? "",
       });
     }
     if (players.length > 0) {
+      // Fallback: try to get team info from the first player's embedded athlete.team
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const firstInj: any = (entry.injuries ?? entry.athletes ?? [])[0] ?? {};
+      const fallback = firstInj.athlete?.team ?? firstInj.team ?? {};
       reports.push({
-        teamId:   team.id ?? "",
-        teamName: team.displayName ?? team.name ?? "",
-        teamAbbr: team.abbreviation ?? "",
+        teamId:   teamObj.id   ?? fallback.id   ?? "",
+        teamName: teamObj.displayName ?? teamObj.name ?? fallback.displayName ?? fallback.name ?? "",
+        teamAbbr: teamObj.abbreviation ?? fallback.abbreviation ?? "",
         players,
       });
     }
