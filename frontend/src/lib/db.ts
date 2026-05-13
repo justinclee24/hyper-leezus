@@ -193,6 +193,15 @@ export async function getOddsCache(
   }
 }
 
+export async function deleteOddsCache(key: string): Promise<void> {
+  try {
+    await ensureSchema();
+    await pool().query("DELETE FROM odds_cache WHERE cache_key = $1", [key]);
+  } catch {
+    // Non-critical
+  }
+}
+
 export async function setOddsCache(key: string, payload: unknown): Promise<void> {
   try {
     await ensureSchema();
