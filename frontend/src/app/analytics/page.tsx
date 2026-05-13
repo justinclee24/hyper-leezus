@@ -17,6 +17,7 @@ export default function AnalyticsPage() {
   );
 }
 
+
 function Card({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-white/[0.05] bg-white/[0.03] p-5">
