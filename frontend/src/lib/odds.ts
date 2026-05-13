@@ -442,6 +442,11 @@ const DB_CACHE_KEY = "upcoming_games";
 let _cachedGames: GameCard[] | null = null;
 let _cacheExpiry = 0;
 
+export function clearOddsCache(): void {
+  _cachedGames = null;
+  _cacheExpiry = 0;
+}
+
 // Strip games that have already kicked off. The Odds API removes them from live
 // responses but our 12-hour cache would otherwise serve them all day.
 // 20-minute grace period keeps in-progress games visible briefly.

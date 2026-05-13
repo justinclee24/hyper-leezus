@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteOddsCache } from "@/lib/db";
+import { clearOddsCache } from "@/lib/odds";
 
 export async function POST(req: Request) {
   const secret = req.headers.get("x-admin-secret");
@@ -7,6 +8,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  clearOddsCache();
   await deleteOddsCache("upcoming_games");
 
   return NextResponse.json({ ok: true, message: "odds cache cleared — next request will fetch fresh data" });
