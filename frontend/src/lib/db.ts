@@ -55,6 +55,15 @@ async function ensureSchema(): Promise<void> {
   await pool().query(`
     ALTER TABLE tracked_bets ADD COLUMN IF NOT EXISTS game_date TIMESTAMPTZ
   `);
+  await pool().query(`
+    CREATE TABLE IF NOT EXISTS odds_snapshots (
+      game_id    TEXT        PRIMARY KEY,
+      home_prob  REAL        NOT NULL,
+      spread     REAL        NOT NULL,
+      total      REAL        NOT NULL,
+      snapped_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
   _schemaReady = true;
 }
 
@@ -197,6 +206,52 @@ export async function deleteOddsCache(key: string): Promise<void> {
   try {
     await ensureSchema();
     await pool().query("DELETE FROM odds_cache WHERE cache_key = $1", [key]);
+  } catch {
+    // Non-critical
+  }
+}
+
+// ─── Odds snapshots (line movement) ──────────────────────────────────────────
+
+export async function getOddsSnapshots(
+  gameIds: string[],
+): Promise<Map<string, { homeProb: number; spread: number; total: number }>> {
+  if (!gameIds.length) return new Map();
+  try {
+    await ensureSchema();
+    const { rows } = await pool().query<{ game_id: string; home_prob: number; spread: number; total: number }>(
+      "SELECT game_id, home_prob, spread, total FROM odds_snapshots WHERE game_id = ANY($1)",
+      [gameIds],
+    );
+    return new Map(rows.map((r) => [r.game_id, { homeProb: r.home_prob, spread: r.spread, total: r.total }]));
+  } catch {
+    return new Map();
+  }
+}
+
+export async function setOddsSnapshots(
+  snapshots: Array<{ gameId: string; homeProb: number; spread: number; total: number }>,
+): Promise<void> {
+  if (!snapshots.length) return;
+  try {
+    await ensureSchema();
+    const values = snapshots.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`).join(", ");
+    const params = snapshots.flatMap((s) => [s.gameId, s.homeProb, s.spread, s.total]);
+    await pool().query(
+      `INSERT INTO odds_snapshots (game_id, home_prob, spread, total)
+       VALUES ${values}
+       ON CONFLICT (game_id) DO NOTHING`,
+      params,
+    );
+  } catch {
+    // Non-critical
+  }
+}
+
+export async function cleanupOddsSnapshots(): Promise<void> {
+  try {
+    await ensureSchema();
+    await pool().query("DELETE FROM odds_snapshots WHERE snapped_at < now() - interval '36 hours'");
   } catch {
     // Non-critical
   }

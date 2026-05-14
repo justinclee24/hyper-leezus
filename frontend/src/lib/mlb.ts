@@ -88,6 +88,66 @@ export async function fetchMLBPitchers(date?: string): Promise<Map<string, Pitch
   return result;
 }
 
+// ─── Home plate umpire ────────────────────────────────────────────────────────
+
+export interface UmpireInfo {
+  name: string;
+  paceFactor: number;  // negative = pitcher-friendly/lean Under, positive = hitter-friendly/lean Over
+}
+
+// Historical home plate umpire tendencies (zone size → run-scoring impact).
+// Large zone → more Ks, fewer walks → fewer baserunners → lean Under.
+// Small/inconsistent zone → more walks, longer counts → lean Over.
+const UMP_TENDENCIES: Record<string, number> = {
+  // Hitter-friendly / lean Over
+  "CB Bucknor":          +0.25,
+  "Alfonso Marquez":     +0.20,
+  "Angel Hernandez":     +0.20,
+  "Laz Diaz":            +0.15,
+  "Dan Bellino":         +0.15,
+  "Vic Carapazza":       +0.10,
+  // Pitcher-friendly / lean Under
+  "Phil Cuzzi":          -0.25,
+  "Hunter Wendelstedt":  -0.20,
+  "Dan Iassogna":        -0.20,
+  "Mark Carlson":        -0.15,
+  "Mike Everitt":        -0.15,
+  "Adam Hamari":         -0.10,
+  "Marvin Hudson":       -0.10,
+};
+
+/** Returns a map of mlbHomeTeamName.toLowerCase() → UmpireInfo for today's games. */
+export async function fetchMLBUmpires(date?: string): Promise<Map<string, UmpireInfo>> {
+  const d = date ?? new Date().toISOString().slice(0, 10);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await mlbFetch<any>(
+    `${MLB_API}/schedule?sportId=1&startDate=${d}&endDate=${d}&hydrate=officials,team`,
+  );
+
+  const result = new Map<string, UmpireInfo>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const games: any[] = data?.dates?.[0]?.games ?? [];
+
+  for (const game of games) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const officials: any[] = game.officials ?? [];
+    const hp = officials.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (o: any) => (o.officialType ?? "").toLowerCase().includes("plate") || o.officialType === "Home Plate",
+    );
+    if (!hp?.official?.fullName) continue;
+    const name: string = hp.official.fullName;
+    const homeTeamName: string = game.teams?.home?.team?.name ?? "";
+    if (homeTeamName) {
+      result.set(homeTeamName.toLowerCase(), {
+        name,
+        paceFactor: UMP_TENDENCIES[name] ?? 0,
+      });
+    }
+  }
+  return result;
+}
+
 /** Fuzzy-match an Odds API team name to a probable pitcher. */
 export function matchMLBPitcher(
   oddsTeamName: string,
@@ -96,6 +156,19 @@ export function matchMLBPitcher(
   const n = oddsTeamName.toLowerCase();
   const last = n.split(" ").pop() ?? n;
   for (const [key, val] of pitcherMap) {
+    if (key === n || key.includes(n) || n.includes(key) || key.includes(last)) return val;
+  }
+  return undefined;
+}
+
+/** Fuzzy-match an Odds API home team name to an umpire assignment. */
+export function matchMLBUmpire(
+  oddsTeamName: string,
+  umpireMap: Map<string, UmpireInfo>,
+): UmpireInfo | undefined {
+  const n = oddsTeamName.toLowerCase();
+  const last = n.split(" ").pop() ?? n;
+  for (const [key, val] of umpireMap) {
     if (key === n || key.includes(n) || n.includes(key) || key.includes(last)) return val;
   }
   return undefined;

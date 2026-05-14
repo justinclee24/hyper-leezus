@@ -1,12 +1,14 @@
 import type { BetRecommendation, GameCard, TeamStats } from "./data";
-import { getOddsCache, setOddsCache } from "./db";
+import { getOddsCache, setOddsCache, getOddsSnapshots, setOddsSnapshots, cleanupOddsSnapshots } from "./db";
 import {
   fetchStandings, matchTeam, fetchInjuries, fetchLastGameDates,
+  fetchRecentForm, fetchNFLReferees,
   ESPN_LEAGUES,
-  type TeamRecord, type TeamInjuryReport,
+  type TeamRecord, type TeamInjuryReport, type TeamRecentForm,
 } from "./espn";
-import { fetchMLBPitchers, matchMLBPitcher } from "./mlb";
+import { fetchMLBPitchers, matchMLBPitcher, fetchMLBUmpires, matchMLBUmpire } from "./mlb";
 import { fetchNHLStats, matchNHLTeam } from "./nhl";
+import { fetchGameWeather } from "./weather";
 
 export const SPORTS: Record<string, string> = {
   basketball_nba: "NBA",
@@ -68,14 +70,29 @@ function parseStreak(s: string): number {
   return dir === "W" ? n : -n;
 }
 
-function toTeamStats(r: TeamRecord): TeamStats {
-  return {
+function toTeamStats(r: TeamRecord, recent?: TeamRecentForm): TeamStats {
+  const season: TeamStats = {
     ppg:        Math.round(r.pointsFor * 10) / 10,
     dppg:       Math.round(r.pointsAgainst * 10) / 10,
     winPct:     Math.round(r.winPct * 1000) / 1000,
     homeWinPct: Math.round(recordWinPct(r.homeRecord) * 1000) / 1000,
     awayWinPct: Math.round(recordWinPct(r.awayRecord) * 1000) / 1000,
     streak:     parseStreak(r.streak),
+  };
+  if (!recent) return season;
+  const gp = recent.wins + recent.losses;
+  if (gp < 3) return season;
+  // Weight recent form up to 40% when we have 10+ games; less with small samples
+  const w = Math.min(gp / 10, 1) * 0.4;
+  const recentWinPct = gp > 0 ? recent.wins / gp : season.winPct;
+  return {
+    ...season,
+    winPct: Math.round((season.winPct * (1 - w) + recentWinPct * w) * 1000) / 1000,
+    ppg:    Math.round((season.ppg  * (1 - w) + recent.ppg  * w) * 10) / 10,
+    dppg:   Math.round((season.dppg * (1 - w) + recent.dppg * w) * 10) / 10,
+    recentWinPct: Math.round(recentWinPct * 1000) / 1000,
+    recentPpg:    Math.round(recent.ppg  * 10) / 10,
+    recentDppg:   Math.round(recent.dppg * 10) / 10,
   };
 }
 
@@ -248,7 +265,33 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
       }
     }
 
-    // Signal 5: Rest differential — back-to-back (≤1 day rest) is a proven edge
+    // Signal 5: Recent form divergence — if recent win% differs significantly from season
+    if (hStat?.recentWinPct !== undefined && aStat?.recentWinPct !== undefined) {
+      const hRecAdj = hStat.recentWinPct > 0 ? hStat.recentWinPct : hStat.winPct;
+      const aRecAdj = aStat.recentWinPct > 0 ? aStat.recentWinPct : aStat.winPct;
+      const recDiff = hRecAdj - aRecAdj;
+      if (Math.abs(recDiff) > 0.12) {
+        sideScore += recDiff > 0 ? 1 : -1;
+        const favName = recDiff > 0 ? homeName : awayName;
+        const pct = Math.round((recDiff > 0 ? hRecAdj : aRecAdj) * 100);
+        sideSignals.push(`${favName} ${pct}% recent form`);
+      }
+    }
+
+    // Signal 7: Sharp money / line movement — odds moving against the market favorite
+    const homeMovement = game.homeOddsMovement ?? 0;
+    if (Math.abs(homeMovement) > 0.025) {
+      const favHome = game.homeWinProbability > 0.52;
+      if (favHome && homeMovement < -0.025) {
+        sideScore -= 1;
+        sideSignals.push(`Sharp: line moved ${Math.round(Math.abs(homeMovement) * 100)}pp → ${awayName}`);
+      } else if (!favHome && homeMovement > 0.025) {
+        sideScore += 1;
+        sideSignals.push(`Sharp: line moved ${Math.round(homeMovement * 100)}pp → ${homeName}`);
+      }
+    }
+
+    // Signal 6 (formerly 5): Rest differential — back-to-back (≤1 day rest) is a proven edge
     const homeB2B = (game.homeRestDays ?? 999) <= 1;
     const awayB2B = (game.awayRestDays ?? 999) <= 1;
     if (homeB2B && !awayB2B) {
@@ -371,7 +414,52 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
         }
       }
 
-      // Signal E: NHL power play % — high combined PP% boosts expected goals
+      // Signal E: Weather — outdoor NFL/MLB (wind, precipitation, cold)
+      if (["NFL", "MLB"].includes(leagueKey) && game.windMph !== undefined) {
+        const wind   = game.windMph;
+        const precip = game.precipChance ?? 0;
+        const temp   = game.tempF ?? 72;
+
+        if (wind >= 20) {
+          totScore -= 1.5;
+          totSignals.push(`High wind ${wind.toFixed(0)} mph → lean Under`);
+        } else if (wind >= 15) {
+          totScore -= 0.75;
+          totSignals.push(`Wind ${wind.toFixed(0)} mph`);
+        }
+
+        if (precip >= 60) {
+          totScore -= 1.0;
+          totSignals.push(`${precip}% precip chance → lean Under`);
+        } else if (precip >= 40) {
+          totScore -= 0.5;
+          totSignals.push(`${precip}% chance of rain`);
+        }
+
+        if (leagueKey === "NFL" && temp < 32) {
+          totScore -= 0.75;
+          totSignals.push(`Freezing (${temp}°F) → lean Under`);
+        } else if (leagueKey === "NFL" && temp < 40) {
+          totScore -= 0.40;
+          totSignals.push(`Cold weather (${temp}°F)`);
+        }
+      }
+
+      // Signal F: Referee/umpire tendencies
+      const refFactor = game.refPaceFactor ?? 0;
+      if (Math.abs(refFactor) >= 0.10) {
+        totScore += refFactor * 2; // scale: 0.20 → 0.40 totScore contribution
+        totSignals.push(`${game.refLabel ?? "Official"} ${refFactor > 0 ? "high-scoring" : "low-scoring"} tendencies`);
+      }
+
+      // Signal G: Total line movement — sharp money on over/under
+      const totMovement = game.totalMovement ?? 0;
+      if (Math.abs(totMovement) >= 0.5) {
+        totScore += totMovement < 0 ? -0.5 : 0.5;
+        totSignals.push(`Total line moved ${totMovement > 0 ? "up" : "down"} ${Math.abs(totMovement).toFixed(1)} pts`);
+      }
+
+      // Signal I: NHL power play % — high combined PP% boosts expected goals
       if (game.league === "NHL") {
         const NHL_AVG_PP = 20.0;
         let ppDelta = 0;
@@ -409,7 +497,7 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
     }
   }
 
-  // One best pick per active league first, then fill to cap with remaining
+  // One best pick per active league first, then fill remaining slots
   const ranked = picks.sort((a, b) => b.edge - a.edge);
   const seen = new Set<string>();
   const result: BetRecommendation[] = [];
@@ -417,7 +505,7 @@ export function derivePicks(games: GameCard[]): BetRecommendation[] {
     if (!seen.has(pk.league)) { seen.add(pk.league); result.push(pk); }
   }
   for (const pk of ranked) {
-    if (result.length >= 8) break;
+    if (result.length >= 20) break;
     if (!result.includes(pk)) result.push(pk);
   }
   return result.sort((a, b) => b.edge - a.edge);
@@ -520,27 +608,40 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
   // Enrich games with all available signals in one parallel pass
   if (sorted.length > 0) {
     const leagues = [...new Set(sorted.map((g) => g.league))];
+    const allGameIds = sorted.map((g) => g.id);
 
     // All enrichment fetches run in parallel
     const [
       standingsArrays,
       lastGameMapsArr,
       injuryReportsArr,
+      recentFormMapsArr,
       mlbPitchersMap,
+      mlbUmpireMap,
       nhlStatsMap,
+      nflRefereeMap,
+      snapshotMap,
     ] = await Promise.all([
-      Promise.all(leagues.map((l) => fetchStandings(l))),
+      Promise.all(leagues.map((l) => fetchStandings(l).catch(() => [] as import("./espn").TeamRecord[]))),
       Promise.all(leagues.map((l) => {
         const cfg = ESPN_LEAGUES[l];
-        return cfg ? fetchLastGameDates(cfg.sport, cfg.league) : Promise.resolve(new Map<string, Date>());
+        return cfg ? fetchLastGameDates(cfg.sport, cfg.league).catch(() => new Map<string, Date>()) : Promise.resolve(new Map<string, Date>());
       })),
-      Promise.all(leagues.map((l) => fetchInjuries(l))),
-      leagues.includes("MLB") ? fetchMLBPitchers() : Promise.resolve(new Map<string, import("./data").PitcherInfo>()),
-      leagues.includes("NHL") ? fetchNHLStats()    : Promise.resolve(new Map<string, import("./nhl").NHLTeamStats>()),
+      Promise.all(leagues.map((l) => fetchInjuries(l).catch(() => [] as TeamInjuryReport[]))),
+      Promise.all(leagues.map((l) => {
+        const cfg = ESPN_LEAGUES[l];
+        return cfg ? fetchRecentForm(cfg.sport, cfg.league).catch(() => new Map<string, TeamRecentForm>()) : Promise.resolve(new Map<string, TeamRecentForm>());
+      })),
+      leagues.includes("MLB") ? fetchMLBPitchers().catch(() => new Map<string, import("./data").PitcherInfo>()) : Promise.resolve(new Map<string, import("./data").PitcherInfo>()),
+      leagues.includes("MLB") ? fetchMLBUmpires().catch(() => new Map<string, import("./mlb").UmpireInfo>())   : Promise.resolve(new Map<string, import("./mlb").UmpireInfo>()),
+      leagues.includes("NHL") ? fetchNHLStats().catch(() => new Map<string, import("./nhl").NHLTeamStats>())   : Promise.resolve(new Map<string, import("./nhl").NHLTeamStats>()),
+      leagues.includes("NFL") ? fetchNFLReferees().catch(() => new Map<string, import("./espn").RefereeInfo>()) : Promise.resolve(new Map<string, import("./espn").RefereeInfo>()),
+      getOddsSnapshots(allGameIds),
     ]);
 
-    const byLeague        = new Map(leagues.map((l, i) => [l, standingsArrays[i]]));
+    const byLeague          = new Map(leagues.map((l, i) => [l, standingsArrays[i]]));
     const lastGamesByLeague = new Map(leagues.map((l, i) => [l, lastGameMapsArr[i]]));
+    const recentByLeague    = new Map(leagues.map((l, i) => [l, recentFormMapsArr[i]]));
 
     // Build injury count maps: teamAbbr.toUpperCase() → # of Out/Doubtful players
     const injCountByLeague = new Map<string, Map<string, number>>(
@@ -554,13 +655,23 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
       }),
     );
 
-    for (const game of sorted) {
-      const records  = byLeague.get(game.league) ?? [];
-      const hr       = records.length ? matchTeam(game.homeTeam, records) : undefined;
-      const ar       = records.length ? matchTeam(game.awayTeam, records) : undefined;
+    // Fetch weather for outdoor NFL/MLB games in parallel (gracefully no-ops without API key)
+    const outdoorGames = sorted.filter((g) => g.league === "NFL" || g.league === "MLB");
+    const weatherResults = await Promise.all(
+      outdoorGames.map((g) => fetchGameWeather(g.homeTeam, g.startTime).catch(() => null)),
+    );
+    const weatherMap = new Map(outdoorGames.map((g, i) => [g.id, weatherResults[i]]));
 
-      if (hr) game.homeStats = toTeamStats(hr);
-      if (ar) game.awayStats = toTeamStats(ar);
+    const newSnapshots: Array<{ gameId: string; homeProb: number; spread: number; total: number }> = [];
+
+    for (const game of sorted) {
+      const records    = byLeague.get(game.league) ?? [];
+      const recentForm = recentByLeague.get(game.league);
+      const hr         = records.length ? matchTeam(game.homeTeam, records) : undefined;
+      const ar         = records.length ? matchTeam(game.awayTeam, records) : undefined;
+
+      if (hr) game.homeStats = toTeamStats(hr, recentForm?.get(hr.id));
+      if (ar) game.awayStats = toTeamStats(ar, recentForm?.get(ar.id));
 
       // Rest days — days between last completed game and this game
       const lastGames = lastGamesByLeague.get(game.league);
@@ -583,13 +694,22 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
         if (ar) game.awayInjuryCount = injCounts.get(ar.abbreviation.toUpperCase()) ?? 0;
       }
 
-      // MLB: probable starting pitchers
-      if (game.league === "MLB" && mlbPitchersMap.size > 0) {
-        game.homePitcher = matchMLBPitcher(game.homeTeam, mlbPitchersMap);
-        game.awayPitcher = matchMLBPitcher(game.awayTeam, mlbPitchersMap);
+      // MLB: probable starters + home plate umpire
+      if (game.league === "MLB") {
+        if (mlbPitchersMap.size > 0) {
+          game.homePitcher = matchMLBPitcher(game.homeTeam, mlbPitchersMap);
+          game.awayPitcher = matchMLBPitcher(game.awayTeam, mlbPitchersMap);
+        }
+        if (mlbUmpireMap.size > 0) {
+          const ump = matchMLBUmpire(game.homeTeam, mlbUmpireMap);
+          if (ump) {
+            game.refPaceFactor = ump.paceFactor;
+            game.refLabel      = `${ump.name} (HP ump)`;
+          }
+        }
       }
 
-      // NHL: power play % and goals/game from official NHL API
+      // NHL: power play % and goals/game
       if (game.league === "NHL" && nhlStatsMap.size > 0) {
         const homeNHL = matchNHLTeam(game.homeTeam, nhlStatsMap);
         const awayNHL = matchNHLTeam(game.awayTeam, nhlStatsMap);
@@ -602,7 +722,44 @@ export async function fetchUpcomingGames(): Promise<GameCard[]> {
           game.awayGoalsPerGame = awayNHL.goalsForPerGame;
         }
       }
+
+      // NFL: referee crew tendencies
+      if (game.league === "NFL" && nflRefereeMap.size > 0) {
+        const homeNameLower = game.homeTeam.toLowerCase();
+        let ref: import("./espn").RefereeInfo | undefined;
+        for (const [key, val] of nflRefereeMap) {
+          if (homeNameLower.includes(key) || key.includes(homeNameLower.split(" ").pop() ?? "")) {
+            ref = val; break;
+          }
+        }
+        if (ref) {
+          game.refPaceFactor = ref.paceFactor;
+          game.refLabel      = `${ref.name} crew`;
+        }
+      }
+
+      // Weather — outdoor NFL/MLB
+      const wx = weatherMap.get(game.id);
+      if (wx) {
+        game.windMph      = wx.windMph;
+        game.precipChance = wx.precipChance;
+        game.tempF        = wx.tempF;
+      }
+
+      // Line movement — compare to first-seen snapshot
+      const snap = snapshotMap.get(game.id);
+      if (snap) {
+        game.homeOddsMovement = Math.round((game.homeWinProbability - snap.homeProb) * 1000) / 1000;
+        game.spreadMovement   = Math.round((game.spread - snap.spread) * 100) / 100;
+        game.totalMovement    = Math.round((game.total  - snap.total)  * 100) / 100;
+      } else {
+        newSnapshots.push({ gameId: game.id, homeProb: game.homeWinProbability, spread: game.spread, total: game.total });
+      }
     }
+
+    // Persist first-seen snapshots and prune stale ones (fire-and-forget, non-blocking)
+    if (newSnapshots.length > 0) setOddsSnapshots(newSnapshots).catch(() => {});
+    cleanupOddsSnapshots().catch(() => {});
   }
 
   if (sorted.length > 0) {

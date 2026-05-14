@@ -775,6 +775,148 @@ export async function fetchInjuries(leagueKey: string): Promise<TeamInjuryReport
   return reports;
 }
 
+// ─── Recent form ─────────────────────────────────────────────────────────────
+
+export interface TeamRecentForm {
+  wins: number;
+  losses: number;
+  ppg: number;   // avg points scored over this window
+  dppg: number;  // avg points allowed
+}
+
+/** Rolling per-team stats over the last `days` days from the ESPN scoreboard.
+ *  Reuses the same URL as fetchLastGameDates so the module cache deduplicates the HTTP request. */
+export async function fetchRecentForm(
+  sport: string,
+  league: string,
+  days = 21,
+): Promise<Map<string, TeamRecentForm>> {
+  const end   = new Date();
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(
+    `${ESPN_SITE}/${sport}/${league}/scoreboard?dates=${fmtDate(start)}-${fmtDate(end)}&limit=200`,
+  );
+  if (!data) return new Map();
+
+  const raw = new Map<string, { wins: number; losses: number; ptsFor: number[]; ptsAgainst: number[] }>();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const event of (data.events ?? []) as any[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const comp = (event.competitions ?? [])[0] as any;
+    const completed =
+      comp?.status?.type?.completed === true || comp?.status?.type?.name === "STATUS_FINAL";
+    if (!completed) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const competitors: any[] = comp.competitors ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const home = competitors.find((c: any) => c.homeAway === "home");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const away = competitors.find((c: any) => c.homeAway === "away");
+    if (!home || !away) continue;
+
+    const homeId: string = home.team?.id ?? "";
+    const awayId: string = away.team?.id ?? "";
+    if (!homeId || !awayId) continue;
+
+    const homeScore = parseInt(String(home.score ?? "-1"));
+    const awayScore = parseInt(String(away.score ?? "-1"));
+    if (homeScore < 0 || awayScore < 0) continue;
+
+    const homeWon = homeScore > awayScore;
+    for (const [id, scored, allowed, won] of [
+      [homeId, homeScore, awayScore, homeWon],
+      [awayId, awayScore, homeScore, !homeWon],
+    ] as [string, number, number, boolean][]) {
+      if (!raw.has(id)) raw.set(id, { wins: 0, losses: 0, ptsFor: [], ptsAgainst: [] });
+      const f = raw.get(id)!;
+      if (won) f.wins++; else f.losses++;
+      f.ptsFor.push(scored);
+      f.ptsAgainst.push(allowed);
+    }
+  }
+
+  const result = new Map<string, TeamRecentForm>();
+  for (const [id, f] of raw) {
+    const gp = f.wins + f.losses || 1;
+    result.set(id, {
+      wins:    f.wins,
+      losses:  f.losses,
+      ppg:     f.ptsFor.reduce((a, b) => a + b, 0) / gp,
+      dppg:    f.ptsAgainst.reduce((a, b) => a + b, 0) / gp,
+    });
+  }
+  return result;
+}
+
+// ─── NFL referee assignments ──────────────────────────────────────────────────
+
+export interface RefereeInfo {
+  name: string;
+  paceFactor: number;  // negative = fewer pts/flags (lean Under), positive = more (lean Over)
+}
+
+// Crew tendencies from historical flag-rate and pace-of-play data
+const NFL_CREW_TENDENCIES: Record<string, number> = {
+  "Brad Allen":      -0.20,
+  "Carl Cheffers":   +0.10,
+  "Clay Martin":      0.00,
+  "Clete Blakeman":  -0.10,
+  "Craig Wrolstad":   0.00,
+  "Jerome Boger":    +0.20,
+  "John Hussey":     -0.20,
+  "Land Clark":       0.00,
+  "Ron Torbert":     -0.10,
+  "Scott Novak":     +0.10,
+  "Shawn Hochuli":   +0.20,
+  "Adrian Hill":      0.00,
+  "Alex Kemp":       +0.10,
+  "Tra Blake":       +0.10,
+  "Bill Vinovich":   +0.15,
+  "Tony Corrente":   +0.15,
+};
+
+/** Fetches NFL referee crew assignments from the ESPN scoreboard for the current week.
+ *  Returns a map of homeTeamName.toLowerCase() → RefereeInfo.
+ *  Officials are typically announced Wednesday; games further out return nothing. */
+export async function fetchNFLReferees(): Promise<Map<string, RefereeInfo>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await espnFetch<any>(`${ESPN_SITE}/football/nfl/scoreboard?limit=100`);
+  if (!data) return new Map();
+
+  const result = new Map<string, RefereeInfo>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const event of (data.events ?? []) as any[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const comp = (event.competitions ?? [])[0] as any;
+    if (!comp) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const officials: any[] = comp.officials ?? [];
+    const ref = officials.find((o: any) =>
+      (o.position?.displayName ?? o.position?.name ?? "").toLowerCase().includes("referee"),
+    );
+    if (!ref) continue;
+    const name: string = ref.displayName ?? ref.fullName ?? "";
+    if (!name) continue;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const competitors: any[] = comp.competitors ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const home = competitors.find((c: any) => c.homeAway === "home");
+    const homeTeamName: string = home?.team?.displayName ?? home?.team?.name ?? "";
+    if (homeTeamName) {
+      result.set(homeTeamName.toLowerCase(), {
+        name,
+        paceFactor: NFL_CREW_TENDENCIES[name] ?? 0,
+      });
+    }
+  }
+  return result;
+}
+
 /** Returns the most recent completed game date per ESPN team ID over the past 14 days. */
 export async function fetchLastGameDates(sport: string, league: string): Promise<Map<string, Date>> {
   const end   = new Date();

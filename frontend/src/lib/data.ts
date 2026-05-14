@@ -5,6 +5,10 @@ export type TeamStats = {
   homeWinPct: number;  // win % in home games
   awayWinPct: number;  // win % in away games
   streak: number;      // +N = W streak, -N = L streak
+  // Rolling recent form (last ~10 games, blended with season)
+  recentWinPct?: number;
+  recentPpg?: number;
+  recentDppg?: number;
 };
 
 export interface PitcherInfo {
@@ -42,6 +46,17 @@ export type GameCard = {
   awayPowerPlay?: number;
   homeGoalsPerGame?: number;    // NHL: goals for per game
   awayGoalsPerGame?: number;
+  // Line movement (delta vs first-seen odds — positive = moved toward home)
+  homeOddsMovement?: number;
+  spreadMovement?: number;
+  totalMovement?: number;
+  // Weather — outdoor NFL/MLB only
+  windMph?: number;
+  precipChance?: number;        // 0–100
+  tempF?: number;
+  // Referee/umpire tendencies
+  refPaceFactor?: number;       // negative = lean Under, positive = lean Over
+  refLabel?: string;
 };
 
 export type TrackedBet = {
