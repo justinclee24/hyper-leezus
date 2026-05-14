@@ -4,6 +4,7 @@ import { derivePicksForGame, fetchUpcomingGames } from "@/lib/odds";
 import { featureImportance } from "@/lib/data";
 import { GamePreview } from "@/components/game-preview";
 import { PickCard } from "@/components/pick-card";
+import { LocalTime } from "@/components/local-time";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/auth";
 import { getUserPlan } from "@/lib/db";
 
@@ -38,15 +39,6 @@ export default async function GamePage({
 
   const picks = isPro ? derivePicksForGame(game) : [];
 
-  const gameDate = new Date(game.startTime).toLocaleString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  });
-
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
       <div className="mb-1 text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">
@@ -56,7 +48,12 @@ export default async function GamePage({
         <h1 className="text-3xl font-bold">
           {game.awayTeam} <span className="text-slate-600">@</span> {game.homeTeam}
         </h1>
-        <span className="text-sm text-slate-500">{gameDate}</span>
+        <span className="text-sm text-slate-500">
+          <LocalTime
+            iso={game.startTime}
+            options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }}
+          />
+        </span>
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-4">

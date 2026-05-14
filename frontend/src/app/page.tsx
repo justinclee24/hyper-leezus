@@ -219,7 +219,6 @@ export default function HomePage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    setSelectedDate(localDateStr());
     setDateOptions(Array.from({ length: 7 }, (_, i) => offsetLocalDate(i)));
   }, []);
 
@@ -340,7 +339,7 @@ export default function HomePage() {
       <section className="mb-10">
         <div className="mb-4 flex items-center gap-3">
           <h2 className="text-xl font-bold tracking-tight">
-            {!selectedDate || selectedDate === today ? "Today's Edges" : `${formatTabLabel(selectedDate, today, tomorrow)} Edges`}
+            {!selectedDate ? "Upcoming Edges" : selectedDate === today ? "Today's Edges" : `${formatTabLabel(selectedDate, today, tomorrow)} Edges`}
           </h2>
           {!loading && filteredPicks.length > 0 && (
             <span className="rounded-md bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-400">
