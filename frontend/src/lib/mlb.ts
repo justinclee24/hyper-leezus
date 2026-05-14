@@ -42,6 +42,7 @@ async function fetchPitcherStats(personId: number): Promise<Omit<PitcherInfo, "n
   );
   if (!statBlock) return null;
   const s = statBlock.stats;
+  if (!s) return null;
   return {
     era:    parseFloat(s.era    ?? "0") || 0,
     whip:   parseFloat(s.whip   ?? "0") || 0,
